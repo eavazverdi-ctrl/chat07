@@ -1,20 +1,21 @@
-// v6: کنترل‌ها یک‌خطی، دکمه‌ها سمت چپ ورودی، حذف کپی لینک، آپلود با uploadBytes (بدون گیر 0%)
+// v7: بدون Firebase Storage — فایل‌ها و تصاویر inline داخل Firestore
 const ROOM_ID = "global-room-1";
 const POLL_MS = 3000;
+const MAX_INLINE = 800 * 1024; // ~800KB base64 length cap
+const IMG_MAX_W = 1280;
+const IMG_QUALITY = 0.72;
 
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
 
 // Init
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
-const storage = getStorage(app);
 
 // local UID
 const uid = (() => {
-  const k = "local_uid_v6";
+  const k = "local_uid_v7";
   let v = localStorage.getItem(k);
   if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(k, v); }
   return v;
@@ -39,19 +40,20 @@ function renderText(m){
   const el = document.createElement('div'); el.className='txt'; el.textContent = m.text;
   addTile({you: m.uid===uid, who: m.uid, el});
 }
-function renderFile(m){
+function renderImage(m){
   if (rendered.has(m.cid)) return; rendered.add(m.cid);
-  let el;
-  if ((m.name||'').match(/\.(png|jpe?g|gif|webp|heic)$/i)) {
-    el = document.createElement('div');
-    const img = document.createElement('img');
-    img.src = m.url; img.className = 'thumb'; img.alt = m.name || 'image';
-    const link = document.createElement('a');
-    link.href = m.url; link.textContent = 'دانلود تصویر'; link.className='filelink'; link.download = m.name || 'image';
-    el.appendChild(img); el.appendChild(link);
-  } else {
-    el = document.createElement('a'); el.href=m.url; el.textContent='📄 '+m.name; el.className='filelink'; el.download = m.name;
-  }
+  const el = document.createElement('div');
+  const img = document.createElement('img');
+  img.src = m.dataUrl; img.className = 'thumb'; img.alt = m.name || 'image';
+  const link = document.createElement('a');
+  link.href = m.dataUrl; link.textContent = 'دانلود تصویر'; link.className='filelink'; link.download = m.name || 'image.jpg';
+  el.appendChild(img); el.appendChild(link);
+  addTile({you: m.uid===uid, who: m.uid, el});
+}
+function renderBlob(m){
+  if (rendered.has(m.cid)) return; rendered.add(m.cid);
+  const el = document.createElement('a');
+  el.href = m.dataUrl; el.textContent = '📄 '+(m.name||'file'); el.className='filelink'; el.download = m.name || 'file';
   addTile({you: m.uid===uid, who: m.uid, el});
 }
 
@@ -68,7 +70,8 @@ async function poll(){
     snap.forEach(d=>{
       const m = d.data(); m.cid = m.cid || d.id;
       if (m.type==='txt') renderText(m);
-      if (m.type==='file') renderFile(m);
+      if (m.type==='img') renderImage(m);
+      if (m.type==='blob') renderBlob(m);
     });
   }catch(e){ /* Rules/Network */ }
 }
@@ -88,38 +91,75 @@ form.addEventListener('submit', async (e)=>{
   }catch(e){ /* ignore */ }
 });
 
-// Upload file (non-resumable to avoid 0% stuck)
+// Helpers
+async function fileToDataUrl(file){
+  return new Promise((resolve, reject)=>{
+    const fr = new FileReader();
+    fr.onerror = reject;
+    fr.onload = () => resolve(fr.result);
+    fr.readAsDataURL(file);
+  });
+}
+async function imageToCompressedDataUrl(file){
+  const dataUrl = await fileToDataUrl(file);
+  const img = new Image();
+  img.decoding = 'async';
+  return await new Promise((resolve, reject)=>{
+    img.onload = ()=>{
+      const scale = Math.min(1, IMG_MAX_W / img.naturalWidth || 1);
+      const w = Math.round((img.naturalWidth||IMG_MAX_W) * scale);
+      const h = Math.round((img.naturalHeight||IMG_MAX_W) * scale);
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      // prefer webp, fallback jpeg
+      let out;
+      try { out = cv.toDataURL('image/webp', IMG_QUALITY); }
+      catch { out = cv.toDataURL('image/jpeg', IMG_QUALITY); }
+      resolve(out);
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+// Choose & "upload" (inline) file
 fileInput.addEventListener('change', async ()=>{
   const file = fileInput.files?.[0];
   if (!file) return;
   const cid = Date.now() + '-' + Math.random().toString(36).slice(2);
   const safeName = (file.name || 'file').replace(/[^\w.\-]+/g,'_');
-  const path = `rooms/${ROOM_ID}/files/${cid}_${safeName}`;
-  const storageRef = ref(storage, path);
 
-  // quick feedback
-  const temp = document.createElement('div'); temp.className='txt'; temp.textContent = `در حال آپلود… — ${safeName}`;
+  // feedback tile
+  const temp = document.createElement('div'); temp.className='txt'; temp.textContent = `در حال آماده‌سازی فایل — ${safeName}`;
   addTile({you:true, who:uid, el: temp});
 
-  // guess contentType if missing
-  let ct = file.type;
-  if (!ct) {
-    if (/\.(heic)$/i.test(safeName)) ct = 'image/heic';
-    else if (/\.(jpe?g)$/i.test(safeName)) ct = 'image/jpeg';
-    else if (/\.(png)$/i.test(safeName)) ct = 'image/png';
-    else if (/\.(gif)$/i.test(safeName)) ct = 'image/gif';
-    else if (/\.(webp)$/i.test(safeName)) ct = 'image/webp';
-    else ct = 'application/octet-stream';
-  }
-
   try{
-    await uploadBytes(storageRef, file, { contentType: ct });
-    const url = await getDownloadURL(storageRef);
-    temp.parentElement.remove();
-    renderFile({name:safeName, url, uid, cid});
-    await addDoc(msgsCol, {type:'file', name:safeName, url, uid, cid, t: serverTimestamp()});
+    if ((safeName).match(/\.(png|jpe?g|gif|webp|heic)$/i)) {
+      // compress & inline
+      const dataUrl = await imageToCompressedDataUrl(file);
+      if (dataUrl.length > MAX_INLINE) {
+        temp.textContent = 'تصویر خیلی بزرگ است (بعد از فشرده‌سازی هم). لطفاً عکس کوچک‌تر بفرست.';
+        return;
+      }
+      // optimistic render
+      temp.parentElement.remove();
+      renderImage({name:safeName, dataUrl, uid, cid});
+      await addDoc(msgsCol, {type:'img', name:safeName, dataUrl, uid, cid, t: serverTimestamp()});
+    } else {
+      // generic small files only
+      const dataUrl = await fileToDataUrl(file);
+      if (dataUrl.length > MAX_INLINE) {
+        temp.textContent = 'حجم فایل زیاد است (حداکثر ~800KB).';
+        return;
+      }
+      temp.parentElement.remove();
+      renderBlob({name:safeName, dataUrl, uid, cid});
+      await addDoc(msgsCol, {type:'blob', name:safeName, dataUrl, uid, cid, t: serverTimestamp()});
+    }
     fileInput.value='';
   }catch(e){
-    temp.textContent = 'آپلود ناموفق بود (Rules/Network).';
+    temp.textContent = 'خطا در پردازش فایل (مرورگر/حافظه).';
   }
 });
