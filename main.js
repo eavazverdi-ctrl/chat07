@@ -1,95 +1,87 @@
-// برد "دکمه‌ای" با polling دوره‌ای از Firestore + Storage
+// نسخه مینیمال: دکمه‌ای + Polling 3s + اتاق ثابت، بدون Service Worker
 const ROOM_ID = "global-room-1";
-const POLL_MS = 3000; // هر ۳ ثانیه
+const POLL_MS = 3000;
 
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
-import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc, limit } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
 
+// Init
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
-const auth = getAuth(app);
 const storage = getStorage(app);
-await signInAnonymously(auth);
 
+// local UID (بدون Auth)
+const uid = (() => {
+  const k = "local_uid";
+  let v = localStorage.getItem(k);
+  if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(k, v); }
+  return v;
+})();
+
+// UI
 const board = document.getElementById("board");
 const form = document.getElementById("chatForm");
 const input = document.getElementById("text");
-const copyInvite = document.getElementById("copyInvite");
 const fileInput = document.getElementById("fileInput");
+const copyInvite = document.getElementById("copyInvite");
 
-const uidPart = () => (auth.currentUser?.uid || "guest").slice(0,6);
-const myKey = uidPart() + "-" + (Math.random().toString(36).slice(2,6));
+function colorFromId(id){ let h=0; for(let i=0;i<id.length;i++) h=(h*31+id.charCodeAt(i))%360; return `hsl(${h} 70% 35%)`; }
+function addTile({you, who, el}){
+  const tile = document.createElement('div'); tile.className = 'tile' + (you? ' you' : '');
+  if (!you) tile.style.background = colorFromId(who);
+  const w = document.createElement('div'); w.className='who'; w.textContent = you? 'شما' : who.slice(0,6);
+  tile.appendChild(w); tile.appendChild(el);
+  board.appendChild(tile); board.scrollTop = board.scrollHeight;
+}
+function renderText(m){
+  if (rendered.has(m.cid)) return; rendered.add(m.cid);
+  const el = document.createElement('div'); el.className='txt'; el.textContent = m.text;
+  addTile({you: m.uid===uid, who: m.uid, el});
+}
+function renderFile(m){
+  if (rendered.has(m.cid)) return; rendered.add(m.cid);
+  const a = document.createElement('a'); a.href=m.url; a.textContent='📄 '+m.name; a.className='filelink'; a.download = m.name;
+  addTile({you: m.uid===uid, who: m.uid, el:a});
+}
 
 // Firestore refs
 const roomDoc = doc(db, "rooms", ROOM_ID);
 await setDoc(roomDoc, { exists: true }, { merge: true });
 const msgsCol = collection(db, "rooms", ROOM_ID, "messages");
 
-// render helpers
+// Polling
 const rendered = new Set();
-function colorFromId(id) {
-  let h = 0; for (let i=0;i<id.length;i++) h=(h*31+id.charCodeAt(i))%360;
-  return `hsl(${h} 70% 35%)`;
-}
-function addTile({you, who, contentEl}) {
-  const tile = document.createElement('div');
-  tile.className = 'tile' + (you ? ' you' : '');
-  if (!you) tile.style.background = colorFromId(who);
-  const whoEl = document.createElement('div');
-  whoEl.className = 'who';
-  whoEl.textContent = you ? 'شما' : who;
-  tile.appendChild(whoEl);
-  tile.appendChild(contentEl);
-  board.appendChild(tile);
-  board.scrollTop = board.scrollHeight;
-}
-function renderText({text, uid, cid}){
-  if (rendered.has(cid)) return; rendered.add(cid);
-  const el = document.createElement('div'); el.className='txt'; el.textContent = text;
-  addTile({you: uid.startsWith(auth.currentUser?.uid || ''), who: uid.slice(0,6), contentEl: el});
-}
-function renderFile({name, url, uid, cid}){
-  if (rendered.has(cid)) return; rendered.add(cid);
-  const a = document.createElement('a'); a.href=url; a.textContent = '📄 ' + name; a.className='filelink'; a.download = name;
-  addTile({you: uid.startsWith(auth.currentUser?.uid || ''), who: uid.slice(0,6), contentEl: a});
-}
-
-// polling fetch
-async function fetchLatest(){
+async function poll(){
   try{
-    const q = query(msgsCol, orderBy('t','asc'));
-    const snap = await getDocs(q);
+    const snap = await getDocs(query(msgsCol, orderBy('t','asc')));
     snap.forEach(d=>{
-      const m = d.data();
-      const cid = m.cid || d.id;
-      if (m.type === 'txt') renderText({text:m.text, uid:m.uid, cid});
-      if (m.type === 'file') renderFile({name:m.name, url:m.url, uid:m.uid, cid});
+      const m = d.data(); m.cid = m.cid || d.id;
+      if (m.type==='txt') renderText(m);
+      if (m.type==='file') renderFile(m);
     });
   }catch(e){
-    // silently ignore; usually Rules issue
+    // احتمالا مشکل Rules؛ فعلا نادیده می‌گیریم
   }
 }
-// start polling
-await fetchLatest();
-setInterval(fetchLatest, POLL_MS);
+await poll();
+setInterval(poll, POLL_MS);
 
-// send text (optimistic tile)
+// Send text (optimistic)
 form.addEventListener('submit', async (e)=>{
   e.preventDefault();
   const text = (input.value||'').trim();
   if (!text) return;
   const cid = Date.now() + '-' + Math.random().toString(36).slice(2);
-  renderText({text, uid: auth.currentUser?.uid || 'guest', cid});
+  renderText({text, uid, cid});
   input.value='';
   try{
-    await addDoc(msgsCol, {type:'txt', text, uid: auth.currentUser?.uid || 'guest', cid, t: serverTimestamp()});
+    await addDoc(msgsCol, {type:'txt', text, uid, cid, t: serverTimestamp()});
   }catch(e){ /* ignore */ }
 });
 
-// choose & upload file (optimistic tile after upload)
+// Choose & upload file (optimistic after upload)
 fileInput.addEventListener('change', async ()=>{
   const file = fileInput.files?.[0];
   if (!file) return;
@@ -99,13 +91,13 @@ fileInput.addEventListener('change', async ()=>{
     const task = uploadBytesResumable(ref(storage, path), file);
     task.on('state_changed', ()=>{}, ()=>{}, async ()=>{
       const url = await getDownloadURL(task.snapshot.ref);
-      renderFile({name:file.name, url, uid: auth.currentUser?.uid || 'guest', cid});
-      await addDoc(msgsCol, {type:'file', name:file.name, url, uid: auth.currentUser?.uid || 'guest', cid, t: serverTimestamp()});
+      renderFile({name:file.name, url, uid, cid});
+      await addDoc(msgsCol, {type:'file', name:file.name, url, uid, cid, t: serverTimestamp()});
       fileInput.value='';
     });
   }catch(e){ /* ignore */ }
 });
 
 copyInvite.addEventListener('click', async ()=>{
-  try{ await navigator.clipboard.writeText(location.href); } catch {}
+  try{ await navigator.clipboard.writeText(location.href); }catch{}
 });
