@@ -1,9 +1,13 @@
-// v7: بدون Firebase Storage — فایل‌ها و تصاویر inline داخل Firestore
+// v8: inline-only, smart image compression loop, buttons left, 70% width
 const ROOM_ID = "global-room-1";
 const POLL_MS = 3000;
-const MAX_INLINE = 800 * 1024; // ~800KB base64 length cap
-const IMG_MAX_W = 1280;
-const IMG_QUALITY = 0.72;
+// Firestore doc hard limit ~1MB; هدف امن: <= 850KB دیتا
+const MAX_BYTES = 850 * 1024;
+// فشرده‌سازی اولیه
+const START_MAX_W = 2048;
+const START_QUALITY = 0.82;
+const MIN_QUALITY = 0.4;
+const MIN_WIDTH = 360;
 
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
@@ -15,7 +19,7 @@ const db = getFirestore(app);
 
 // local UID
 const uid = (() => {
-  const k = "local_uid_v7";
+  const k = "local_uid_v8";
   let v = localStorage.getItem(k);
   if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(k, v); }
   return v;
@@ -92,71 +96,87 @@ form.addEventListener('submit', async (e)=>{
 });
 
 // Helpers
-async function fileToDataUrl(file){
-  return new Promise((resolve, reject)=>{
-    const fr = new FileReader();
-    fr.onerror = reject;
-    fr.onload = () => resolve(fr.result);
-    fr.readAsDataURL(file);
-  });
+const b64Bytes = (dataUrl)=>{
+  const b64 = (dataUrl.split(',')[1]||'').replace(/\s+/g,'');
+  const pad = (b64.endsWith('==')?2:(b64.endsWith('=')?1:0));
+  return Math.floor(b64.length*3/4) - pad;
+};
+const readAsDataURL = (file)=> new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); });
+async function drawToCanvas(img, width){
+  const scale = width / img.naturalWidth;
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(img.naturalHeight * scale));
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(img, 0, 0, w, h);
+  return cv;
 }
-async function imageToCompressedDataUrl(file){
-  const dataUrl = await fileToDataUrl(file);
-  const img = new Image();
-  img.decoding = 'async';
-  return await new Promise((resolve, reject)=>{
-    img.onload = ()=>{
-      const scale = Math.min(1, IMG_MAX_W / img.naturalWidth || 1);
-      const w = Math.round((img.naturalWidth||IMG_MAX_W) * scale);
-      const h = Math.round((img.naturalHeight||IMG_MAX_W) * scale);
-      const cv = document.createElement('canvas');
-      cv.width = w; cv.height = h;
-      const ctx = cv.getContext('2d');
-      ctx.drawImage(img, 0, 0, w, h);
-      // prefer webp, fallback jpeg
-      let out;
-      try { out = cv.toDataURL('image/webp', IMG_QUALITY); }
-      catch { out = cv.toDataURL('image/jpeg', IMG_QUALITY); }
-      resolve(out);
-    };
-    img.onerror = reject;
-    img.src = dataUrl;
-  });
+async function compressImageSmart(file){
+  // Load
+  const dataUrl = await readAsDataURL(file);
+  const img = new Image(); img.decoding='async';
+  await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=dataUrl; });
+  let width = Math.min(START_MAX_W, img.naturalWidth || START_MAX_W);
+  let quality = START_QUALITY;
+  let mime = 'image/webp';
+  // Safari fallback
+  const testCanvas = document.createElement('canvas');
+  testCanvas.width = 1; testCanvas.height = 1;
+  try { testCanvas.toDataURL('image/webp', .5); } catch { mime = 'image/jpeg'; }
+
+  for (let i=0;i<12;i++){
+    const cv = await drawToCanvas(img, width);
+    let out;
+    try { out = cv.toDataURL(mime, quality); }
+    catch { out = cv.toDataURL('image/jpeg', quality); mime='image/jpeg'; }
+    if (b64Bytes(out) <= MAX_BYTES) return out;
+    // reduce quality until MIN_QUALITY, then reduce width
+    if (quality > MIN_QUALITY) {
+      quality = Math.max(MIN_QUALITY, quality * 0.85);
+    } else if (width > MIN_WIDTH) {
+      width = Math.max(MIN_WIDTH, Math.floor(width * 0.85));
+    } else {
+      // last-resort: force JPEG low quality
+      mime='image/jpeg'; quality = Math.max(0.3, quality * 0.8);
+    }
+  }
+  // return last attempt even if still a bit over (rare)
+  const cv = await drawToCanvas(img, width);
+  let out;
+  try { out = cv.toDataURL(mime, quality); } catch { out = cv.toDataURL('image/jpeg', quality); }
+  return out;
 }
 
-// Choose & "upload" (inline) file
+// Choose & inline file (images auto-fit, others up to ~850KB)
 fileInput.addEventListener('change', async ()=>{
   const file = fileInput.files?.[0];
   if (!file) return;
   const cid = Date.now() + '-' + Math.random().toString(36).slice(2);
   const safeName = (file.name || 'file').replace(/[^\w.\-]+/g,'_');
 
-  // feedback tile
   const temp = document.createElement('div'); temp.className='txt'; temp.textContent = `در حال آماده‌سازی فایل — ${safeName}`;
   addTile({you:true, who:uid, el: temp});
 
   try{
-    if ((safeName).match(/\.(png|jpe?g|gif|webp|heic)$/i)) {
-      // compress & inline
-      const dataUrl = await imageToCompressedDataUrl(file);
-      if (dataUrl.length > MAX_INLINE) {
-        temp.textContent = 'تصویر خیلی بزرگ است (بعد از فشرده‌سازی هم). لطفاً عکس کوچک‌تر بفرست.';
+    if ((safeName).match(/\.(png|jpe?g|gif|webp|heic|heif)$/i) || (file.type||'').startsWith('image/')) {
+      const dataUrl = await compressImageSmart(file);
+      // اطمینان نهایی
+      if (b64Bytes(dataUrl) > MAX_BYTES) {
+        temp.textContent = 'خطا: تصویر بسیار بزرگ است. لطفاً دوباره تلاش کنید.';
         return;
       }
-      // optimistic render
       temp.parentElement.remove();
       renderImage({name:safeName, dataUrl, uid, cid});
       await addDoc(msgsCol, {type:'img', name:safeName, dataUrl, uid, cid, t: serverTimestamp()});
     } else {
-      // generic small files only
-      const dataUrl = await fileToDataUrl(file);
-      if (dataUrl.length > MAX_INLINE) {
-        temp.textContent = 'حجم فایل زیاد است (حداکثر ~800KB).';
+      const raw = await readAsDataURL(file);
+      if (b64Bytes(raw) > MAX_BYTES) {
+        temp.textContent = 'حجم فایل زیاد است (حداکثر ~850KB).';
         return;
       }
       temp.parentElement.remove();
-      renderBlob({name:safeName, dataUrl, uid, cid});
-      await addDoc(msgsCol, {type:'blob', name:safeName, dataUrl, uid, cid, t: serverTimestamp()});
+      renderBlob({name:safeName, dataUrl: raw, uid, cid});
+      await addDoc(msgsCol, {type:'blob', name:safeName, dataUrl: raw, uid, cid, t: serverTimestamp()});
     }
     fileInput.value='';
   }catch(e){
