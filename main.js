@@ -1,20 +1,20 @@
-// v5: دکمه‌ها سمت چپ ورودی (RTL)، حذف کپی لینک، رفع گیر 0% با fallback، 50% عرض، Polling 3s
+// v6: کنترل‌ها یک‌خطی، دکمه‌ها سمت چپ ورودی، حذف کپی لینک، آپلود با uploadBytes (بدون گیر 0%)
 const ROOM_ID = "global-room-1";
 const POLL_MS = 3000;
 
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
-import { getStorage, ref, uploadBytesResumable, getDownloadURL, uploadBytes } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
 
 // Init
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
-// local UID (بدون Auth)
+// local UID
 const uid = (() => {
-  const k = "local_uid_v5";
+  const k = "local_uid_v6";
   let v = localStorage.getItem(k);
   if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(k, v); }
   return v;
@@ -70,9 +70,7 @@ async function poll(){
       if (m.type==='txt') renderText(m);
       if (m.type==='file') renderFile(m);
     });
-  }catch(e){
-    // احتمالاً Rules
-  }
+  }catch(e){ /* Rules/Network */ }
 }
 await poll();
 setInterval(poll, POLL_MS);
@@ -90,7 +88,7 @@ form.addEventListener('submit', async (e)=>{
   }catch(e){ /* ignore */ }
 });
 
-// Upload file with fallback if stuck at 0%
+// Upload file (non-resumable to avoid 0% stuck)
 fileInput.addEventListener('change', async ()=>{
   const file = fileInput.files?.[0];
   if (!file) return;
@@ -98,56 +96,30 @@ fileInput.addEventListener('change', async ()=>{
   const safeName = (file.name || 'file').replace(/[^\w.\-]+/g,'_');
   const path = `rooms/${ROOM_ID}/files/${cid}_${safeName}`;
   const storageRef = ref(storage, path);
-  const metadata = { contentType: file.type || 'application/octet-stream' };
 
-  // Temporary uploading tile
-  const temp = document.createElement('div'); temp.className='txt'; temp.textContent = `در حال آپلود: 0% — ${safeName}`;
+  // quick feedback
+  const temp = document.createElement('div'); temp.className='txt'; temp.textContent = `در حال آپلود… — ${safeName}`;
   addTile({you:true, who:uid, el: temp});
 
-  let progressed = false;
-  let completed = false;
-  const watchdogMs = 10000; // 10s
-  const startedAt = Date.now();
+  // guess contentType if missing
+  let ct = file.type;
+  if (!ct) {
+    if (/\.(heic)$/i.test(safeName)) ct = 'image/heic';
+    else if (/\.(jpe?g)$/i.test(safeName)) ct = 'image/jpeg';
+    else if (/\.(png)$/i.test(safeName)) ct = 'image/png';
+    else if (/\.(gif)$/i.test(safeName)) ct = 'image/gif';
+    else if (/\.(webp)$/i.test(safeName)) ct = 'image/webp';
+    else ct = 'application/octet-stream';
+  }
 
-  try {
-    const task = uploadBytesResumable(storageRef, file, metadata);
-    task.on('state_changed', (snap)=>{
-      progressed = true;
-      const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
-      temp.textContent = `در حال آپلود: ${pct}% — ${safeName}`;
-    }, async (err)=>{
-      if (completed) return;
-      temp.textContent = 'خطا در آپلود فایل';
-    }, async ()=>{
-      completed = true;
-      const url = await getDownloadURL(task.snapshot.ref);
-      temp.parentElement.remove();
-      renderFile({name:safeName, url, uid, cid});
-      await addDoc(msgsCol, {type:'file', name:safeName, url, uid, cid, t: serverTimestamp()});
-      fileInput.value='';
-    });
-
-    // Watchdog: if no progress within 10s, cancel & fallback to uploadBytes
-    const check = setInterval(async ()=>{
-      if (completed) { clearInterval(check); return; }
-      const elapsed = Date.now() - startedAt;
-      if (!progressed && elapsed > watchdogMs) {
-        try { task.cancel(); } catch {}
-        clearInterval(check);
-        try {
-          const snap = await uploadBytes(storageRef, file, metadata);
-          const url = await getDownloadURL(storageRef);
-          temp.parentElement.remove();
-          renderFile({name:safeName, url, uid, cid});
-          await addDoc(msgsCol, {type:'file', name:safeName, url, uid, cid, t: serverTimestamp()});
-          fileInput.value='';
-        } catch (e) {
-          temp.textContent = 'آپلود ناموفق بود (Rules/Network).';
-        }
-      }
-    }, 2000);
-
-  } catch (e) {
-    temp.textContent = 'آپلود مجاز نیست (Rules/Network).';
+  try{
+    await uploadBytes(storageRef, file, { contentType: ct });
+    const url = await getDownloadURL(storageRef);
+    temp.parentElement.remove();
+    renderFile({name:safeName, url, uid, cid});
+    await addDoc(msgsCol, {type:'file', name:safeName, url, uid, cid, t: serverTimestamp()});
+    fileInput.value='';
+  }catch(e){
+    temp.textContent = 'آپلود ناموفق بود (Rules/Network).';
   }
 });
