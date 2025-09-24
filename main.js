@@ -1,4 +1,4 @@
-// نسخه مینیمال: دکمه‌ای + Polling 3s + اتاق ثابت، بدون Service Worker
+// v4: دکمه‌ای + Polling 3s + اتاق ثابت + رفع باگ عکس + واکنش‌گرا + 50% عرض
 const ROOM_ID = "global-room-1";
 const POLL_MS = 3000;
 
@@ -14,7 +14,7 @@ const storage = getStorage(app);
 
 // local UID (بدون Auth)
 const uid = (() => {
-  const k = "local_uid";
+  const k = "local_uid_v4";
   let v = localStorage.getItem(k);
   if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(k, v); }
   return v;
@@ -42,8 +42,18 @@ function renderText(m){
 }
 function renderFile(m){
   if (rendered.has(m.cid)) return; rendered.add(m.cid);
-  const a = document.createElement('a'); a.href=m.url; a.textContent='📄 '+m.name; a.className='filelink'; a.download = m.name;
-  addTile({you: m.uid===uid, who: m.uid, el:a});
+  let el;
+  if ((m.name||'').match(/\.(png|jpe?g|gif|webp|heic)$/i)) {
+    el = document.createElement('div');
+    const img = document.createElement('img');
+    img.src = m.url; img.className = 'thumb'; img.alt = m.name || 'image';
+    const link = document.createElement('a');
+    link.href = m.url; link.textContent = 'دانلود تصویر'; link.className='filelink'; link.download = m.name || 'image';
+    el.appendChild(img); el.appendChild(link);
+  } else {
+    el = document.createElement('a'); el.href=m.url; el.textContent='📄 '+m.name; el.className='filelink'; el.download = m.name;
+  }
+  addTile({you: m.uid===uid, who: m.uid, el});
 }
 
 // Firestore refs
@@ -62,7 +72,7 @@ async function poll(){
       if (m.type==='file') renderFile(m);
     });
   }catch(e){
-    // احتمالا مشکل Rules؛ فعلا نادیده می‌گیریم
+    // احتمالاً Rules
   }
 }
 await poll();
@@ -81,21 +91,38 @@ form.addEventListener('submit', async (e)=>{
   }catch(e){ /* ignore */ }
 });
 
-// Choose & upload file (optimistic after upload)
+// Choose & upload file (with progress + image metadata)
 fileInput.addEventListener('change', async ()=>{
   const file = fileInput.files?.[0];
   if (!file) return;
   const cid = Date.now() + '-' + Math.random().toString(36).slice(2);
   try{
     const path = `rooms/${ROOM_ID}/files/${cid}_${file.name}`;
-    const task = uploadBytesResumable(ref(storage, path), file);
-    task.on('state_changed', ()=>{}, ()=>{}, async ()=>{
+    const metadata = { contentType: file.type || 'application/octet-stream' };
+    const task = uploadBytesResumable(ref(storage, path), file, metadata);
+
+    // Temporary "uploading..." tile
+    const temp = document.createElement('div'); temp.className='txt'; temp.textContent = `در حال آپلود: 0% — ${file.name}`;
+    addTile({you:true, who:uid, el: temp});
+
+    task.on('state_changed', (snap)=>{
+      const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+      temp.textContent = `در حال آپلود: ${pct}% — ${file.name}`;
+    }, (err)=>{
+      temp.textContent = 'خطا در آپلود فایل';
+    }, async ()=>{
       const url = await getDownloadURL(task.snapshot.ref);
+      // Replace temp with real tile
+      temp.parentElement.remove();
       renderFile({name:file.name, url, uid, cid});
       await addDoc(msgsCol, {type:'file', name:file.name, url, uid, cid, t: serverTimestamp()});
       fileInput.value='';
     });
-  }catch(e){ /* ignore */ }
+  }catch(e){
+    // show simple error
+    const temp = document.createElement('div'); temp.className='txt'; temp.textContent = 'آپلود مجاز نیست (Rules/Network).';
+    addTile({you:true, who:uid, el: temp});
+  }
 });
 
 copyInvite.addEventListener('click', async ()=>{

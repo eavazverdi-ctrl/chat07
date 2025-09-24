@@ -2,7 +2,7 @@
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>برد دکمه‌ای</title>
   <style>
     :root{--bg:#0f172a;--btn:#1f2937;--you:#2563eb;--text:#e5e7eb;--border:#243041;--panel:#111827}
@@ -12,18 +12,19 @@
     header{padding:12px 16px;background:var(--panel)}
     header h1{margin:0;font-size:18px}
     main{flex:1;display:flex;flex-direction:column;max-width:900px;margin:0 auto;width:100%;min-height:0;padding:12px 16px;gap:10px}
-    #board{flex:1;overflow:auto;min-height:0;border:1px solid var(--border);border-radius:12px;background:#0b1220;padding:12px;display:flex;flex-direction:column;gap:10px}
-    .tile{display:inline-flex;align-items:center;gap:10px;padding:10px 14px;border-radius:14px;border:1px solid var(--border);background:var(--btn);color:var(--text);box-shadow:0 2px 6px rgba(0,0,0,.25);max-width:80%}
+    #board{flex:1;overflow:auto;overflow-x:hidden;min-height:0;border:1px solid var(--border);border-radius:12px;background:#0b1220;padding:12px;display:flex;flex-direction:column;gap:10px}
+    .tile{display:inline-flex;flex-direction:column;gap:6px;padding:10px 14px;border-radius:14px;border:1px solid var(--border);background:var(--btn);color:var(--text);box-shadow:0 2px 6px rgba(0,0,0,.25);max-width:50%;align-self:flex-start}
     .tile.you{align-self:flex-end;background:var(--you);color:#fff}
     .who{font-size:11px;opacity:.9}
-    .txt{white-space:pre-wrap;line-height:1.5}
+    .txt{white-space:pre-wrap;line-height:1.5;word-break:break-word;overflow-wrap:anywhere}
     .filelink{color:#93c5fd;text-decoration:none}
-    form#chatForm{display:flex;gap:8px;padding:12px 16px;background:var(--panel);align-items:center;border-radius:12px}
+    .thumb{max-width:100%;height:auto;border-radius:10px;border:1px solid rgba(255,255,255,.1)}
+    form#chatForm{display:flex;gap:8px;padding:12px 16px;background:var(--panel);align-items:center;border-radius:12px;flex-wrap:wrap}
     input,button{font-size:16px}
-    #text{flex:1;border-radius:12px;border:1px solid #374151;background:#0b1220;color:var(--text);padding:10px}
-    button{border:none;border-radius:12px;background:#22c55e;color:#0b1220;padding:10px 14px;font-weight:700;cursor:pointer}
+    #text{flex:1 1 220px;min-width:0;border-radius:12px;border:1px solid #374151;background:#0b1220;color:#e5e7eb;padding:10px}
+    button{flex:0 0 auto;border:none;border-radius:12px;background:#22c55e;color:#0b1220;padding:10px 14px;font-weight:700;cursor:pointer}
     button.secondary{background:#334155;color:#e5e7eb}
-    label.file-btn{display:inline-flex;align-items:center;gap:6px;background:#334155;color:#e5e7eb;padding:10px 12px;border-radius:12px;cursor:pointer}
+    label.file-btn{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;background:#334155;color:#e5e7eb;padding:10px 12px;border-radius:12px;cursor:pointer}
     input[type=file]{display:none}
   </style>
 </head>
@@ -36,7 +37,7 @@
     <form id="chatForm">
       <label class="file-btn">
         📎 فایل
-        <input type="file" id="fileInput" />
+        <input type="file" id="fileInput" accept="*/*;capture=camera,image/*" />
       </label>
       <input id="text" placeholder="پیام خود را بنویسید…" autocomplete="off" />
       <button type="submit" id="sendBtn">ارسال</button>
