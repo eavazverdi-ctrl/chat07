@@ -1,11 +1,11 @@
-// v4: دکمه‌ای + Polling 3s + اتاق ثابت + رفع باگ عکس + واکنش‌گرا + 50% عرض
+// v5: دکمه‌ها سمت چپ ورودی (RTL)، حذف کپی لینک، رفع گیر 0% با fallback، 50% عرض، Polling 3s
 const ROOM_ID = "global-room-1";
 const POLL_MS = 3000;
 
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
-import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
+import { getStorage, ref, uploadBytesResumable, getDownloadURL, uploadBytes } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
 
 // Init
 const app = initializeApp(FIREBASE_CONFIG);
@@ -14,7 +14,7 @@ const storage = getStorage(app);
 
 // local UID (بدون Auth)
 const uid = (() => {
-  const k = "local_uid_v4";
+  const k = "local_uid_v5";
   let v = localStorage.getItem(k);
   if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(k, v); }
   return v;
@@ -25,7 +25,6 @@ const board = document.getElementById("board");
 const form = document.getElementById("chatForm");
 const input = document.getElementById("text");
 const fileInput = document.getElementById("fileInput");
-const copyInvite = document.getElementById("copyInvite");
 
 function colorFromId(id){ let h=0; for(let i=0;i<id.length;i++) h=(h*31+id.charCodeAt(i))%360; return `hsl(${h} 70% 35%)`; }
 function addTile({you, who, el}){
@@ -91,40 +90,64 @@ form.addEventListener('submit', async (e)=>{
   }catch(e){ /* ignore */ }
 });
 
-// Choose & upload file (with progress + image metadata)
+// Upload file with fallback if stuck at 0%
 fileInput.addEventListener('change', async ()=>{
   const file = fileInput.files?.[0];
   if (!file) return;
   const cid = Date.now() + '-' + Math.random().toString(36).slice(2);
-  try{
-    const path = `rooms/${ROOM_ID}/files/${cid}_${file.name}`;
-    const metadata = { contentType: file.type || 'application/octet-stream' };
-    const task = uploadBytesResumable(ref(storage, path), file, metadata);
+  const safeName = (file.name || 'file').replace(/[^\w.\-]+/g,'_');
+  const path = `rooms/${ROOM_ID}/files/${cid}_${safeName}`;
+  const storageRef = ref(storage, path);
+  const metadata = { contentType: file.type || 'application/octet-stream' };
 
-    // Temporary "uploading..." tile
-    const temp = document.createElement('div'); temp.className='txt'; temp.textContent = `در حال آپلود: 0% — ${file.name}`;
-    addTile({you:true, who:uid, el: temp});
+  // Temporary uploading tile
+  const temp = document.createElement('div'); temp.className='txt'; temp.textContent = `در حال آپلود: 0% — ${safeName}`;
+  addTile({you:true, who:uid, el: temp});
 
+  let progressed = false;
+  let completed = false;
+  const watchdogMs = 10000; // 10s
+  const startedAt = Date.now();
+
+  try {
+    const task = uploadBytesResumable(storageRef, file, metadata);
     task.on('state_changed', (snap)=>{
+      progressed = true;
       const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
-      temp.textContent = `در حال آپلود: ${pct}% — ${file.name}`;
-    }, (err)=>{
+      temp.textContent = `در حال آپلود: ${pct}% — ${safeName}`;
+    }, async (err)=>{
+      if (completed) return;
       temp.textContent = 'خطا در آپلود فایل';
     }, async ()=>{
+      completed = true;
       const url = await getDownloadURL(task.snapshot.ref);
-      // Replace temp with real tile
       temp.parentElement.remove();
-      renderFile({name:file.name, url, uid, cid});
-      await addDoc(msgsCol, {type:'file', name:file.name, url, uid, cid, t: serverTimestamp()});
+      renderFile({name:safeName, url, uid, cid});
+      await addDoc(msgsCol, {type:'file', name:safeName, url, uid, cid, t: serverTimestamp()});
       fileInput.value='';
     });
-  }catch(e){
-    // show simple error
-    const temp = document.createElement('div'); temp.className='txt'; temp.textContent = 'آپلود مجاز نیست (Rules/Network).';
-    addTile({you:true, who:uid, el: temp});
-  }
-});
 
-copyInvite.addEventListener('click', async ()=>{
-  try{ await navigator.clipboard.writeText(location.href); }catch{}
+    // Watchdog: if no progress within 10s, cancel & fallback to uploadBytes
+    const check = setInterval(async ()=>{
+      if (completed) { clearInterval(check); return; }
+      const elapsed = Date.now() - startedAt;
+      if (!progressed && elapsed > watchdogMs) {
+        try { task.cancel(); } catch {}
+        clearInterval(check);
+        try {
+          const snap = await uploadBytes(storageRef, file, metadata);
+          const url = await getDownloadURL(storageRef);
+          temp.parentElement.remove();
+          renderFile({name:safeName, url, uid, cid});
+          await addDoc(msgsCol, {type:'file', name:safeName, url, uid, cid, t: serverTimestamp()});
+          fileInput.value='';
+        } catch (e) {
+          temp.textContent = 'آپلود ناموفق بود (Rules/Network).';
+        }
+      }
+    }, 2000);
+
+  } catch (e) {
+    temp.textContent = 'آپلود مجاز نیست (Rules/Network).';
+  }
 });
