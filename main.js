@@ -21,6 +21,7 @@ const mainEl = document.querySelector('main');
 const roomsView = document.getElementById('roomsView');
 const chatView = document.getElementById('chatView');
 const roomsList = document.getElementById('roomsList');
+const roomsCache = new Map();
 const addRoomBtn = document.getElementById('addRoomBtn');
 
 const board = document.getElementById('board');
@@ -88,6 +89,7 @@ async function loadRooms(){
     } else {
       snap.forEach(d=>{
         const r = d.data();
+        roomsCache.set(d.id, r);
         const btn = document.createElement('button');
         btn.className = 'btn btn-glass room-btn';
         btn.innerHTML = '<span>'+ (r.name||d.id) +'</span><span class="room-meta">🔒</span>';
@@ -136,6 +138,15 @@ roomPassEnter.addEventListener('keydown', e=>{ if (e.key==='Enter') enterRoom(e)
 async function enterRoom(e){
   if (e) e.preventDefault();
   const passTry = (roomPassEnter.value||'').trim();
+  // اول با کشِ لیست اتاق‌ها چک می‌کنیم
+  const cached = roomsCache.get(pendingRoomId);
+  if (cached){
+    if ((cached.pass||'') !== passTry){ roomPassHint.textContent='پسورد اشتباه است.'; return; }
+    roomPassModal.removeAttribute('open');
+    startRoom(pendingRoomId, pendingRoomName);
+    return;
+  }
+  // در غیر این‌صورت، تلاش به getDoc (سازگاری)
   try{
     const ref = doc(db, 'rooms', pendingRoomId);
     const snap = await getDoc(ref);
@@ -148,6 +159,7 @@ async function enterRoom(e){
     roomPassHint.textContent='خطای شبکه/دسترسی.';
   }
 }
+
 
 let currentRoomId=null, pollTimer=null, rendered=new Set(), msgsCol=null;
 
