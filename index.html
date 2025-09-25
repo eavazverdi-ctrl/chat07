@@ -13,12 +13,13 @@
       --text:#e5e7eb; --border:rgba(255,255,255,.22);
       --glass:rgba(255,255,255,.10); --glass-you:rgba(37,99,235,.22);
       --danger:#ef4444;
+      --msg-fs:16px;
     }
     *{box-sizing:border-box}
     html,body{height:100%}
     html, body {
-      overflow: hidden;              /* No page scroll */
-      overscroll-behavior: none;     /* Prevent rubber-banding */
+      overflow: hidden;
+      overscroll-behavior: none;
       -webkit-overflow-scrolling: auto;
     }
     body{
@@ -29,7 +30,7 @@
                   linear-gradient(180deg, var(--bg1), var(--bg2));
       background-attachment: fixed;
       -webkit-text-size-adjust: 100%;
-      touch-action: none;            /* Prevent swipe-scroll on page */
+      touch-action: none;
     }
     main{
       flex:1;display:flex;flex-direction:column;max-width:900px;margin:0 auto;width:100%;
@@ -41,12 +42,12 @@
       background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
       backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
       padding:12px;display:flex;flex-direction:column;gap:10px;
-      justify-content:flex-end;      /* start from bottom when few messages */
-      overscroll-behavior: contain;  /* no propagation */
-      touch-action: pan-y;           /* only vertical scroll here */
+      overscroll-behavior: contain;
+      touch-action: pan-y;
     }
+    #board .push{flex:1 0 auto} /* pushes messages to bottom when not enough content */
     .tile{
-      display:inline-flex;flex-direction:column;gap:6px;padding:10px 14px;border-radius:16px;
+      display:inline-flex;flex-direction:column;gap:4px;padding:6px 10px;border-radius:16px;
       border:1px solid var(--border);
       background:var(--glass);
       -webkit-backdrop-filter: blur(10px) saturate(140%);
@@ -56,11 +57,11 @@
     }
     .tile.you{align-self:flex-end;background:var(--glass-you)}
     .who{font-size:11px;opacity:.9}
-    .txt{white-space:pre-wrap;line-height:1.55;word-break:break-word;overflow-wrap:anywhere}
-    .meta{font-size:10px;opacity:.8;margin-top:4px;text-align:left;direction:ltr}
+    .txt{white-space:pre-wrap;line-height:1.55;word-break:break-word;overflow-wrap:anywhere;font-size:var(--msg-fs)}
+    .meta{font-size:10px;opacity:.8;margin-top:2px;text-align:left;direction:ltr}
     .filelink{color:#93c5fd;text-decoration:none}
     .thumb{max-width:100%;height:auto;border-radius:12px;border:1px solid rgba(255,255,255,.15)}
-    /* Controls as grid: [file][settings][input]; buttons on LEFT of input */
+    /* Controls grid: [file][settings][input] */
     form#chatForm{
       direction:ltr;
       display:grid; grid-template-columns: auto auto 1fr; gap:8px; align-items:stretch;
@@ -86,7 +87,7 @@
     }
     input[type=file]{display:none}
     /* Modals */
-    .modal{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:30 }
+    .modal{ position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; align-items:center; justify-content:center; z-index:30 }
     .modal[open]{ display:flex }
     .card{
       width:min(92vw,480px); background:var(--glass);
@@ -97,7 +98,7 @@
     }
     .card h2{margin:0;font-size:18px}
     .field{display:flex;flex-direction:column;gap:6px}
-    .field input{
+    .field input, .field select{
       border-radius:12px;border:1px solid rgba(255,255,255,.25);
       background:rgba(0,0,0,.35);color:#fff;padding:10px;font-size:16px; direction:rtl; text-align:right
     }
@@ -107,14 +108,17 @@
     .btn.danger{background:#ef4444; color:#fff}
     .btn.full{width:100%}
     .hint{font-size:12px;opacity:.9}
+    /* Hide main until gate is passed */
+    main.gated{visibility:hidden}
   </style>
 </head>
 <body>
-  <main>
-    <div id="board" aria-live="polite"></div>
+  <main class="gated">
+    <div id="board" aria-live="polite">
+      <div class="push"></div>
+    </div>
 
     <form id="chatForm">
-      <!-- order matters for grid: left to right -->
       <label id="fileBtn" class="icon-btn" title="بارگذاری فایل">📎
         <input type="file" id="fileInput" accept="*/*;capture=camera,image/*" />
       </label>
@@ -123,7 +127,7 @@
     </form>
   </main>
 
-  <!-- Name + passcode Modal -->
+  <!-- Name + passcode Modal (opaque backdrop) -->
   <div id="nameModal" class="modal">
     <div class="card">
       <h2>ورود به اتاق</h2>
@@ -151,6 +155,18 @@
         <div class="row70">
           <input id="newName" placeholder="نام جدید" />
           <button id="applyName" class="btn">ذخیره</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>اندازهٔ فونت پیام‌ها</label>
+        <div class="row70">
+          <select id="fontSizeSel">
+            <option value="14px">کوچک</option>
+            <option value="16px" selected>عادی</option>
+            <option value="18px">بزرگ</option>
+            <option value="20px">خیلی بزرگ</option>
+          </select>
+          <button id="applyFont" class="btn">اعمال</button>
         </div>
       </div>
       <div class="field">
