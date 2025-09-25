@@ -183,9 +183,7 @@ form.addEventListener('submit', async (e)=>{
   try{ await addDoc(msgsCol, {type:'txt', text, uid, name: displayName, cid, ts, t: serverTimestamp()}); }catch(_){}
 });
 
-// Emoji
-const emojiPop = document.getElementById('emojiPop');
-const emojiBtn = document.getElementById('emojiBtn');
+// Emoji (use already-declared elements)
 const EMOJIS = ['🙂','😂','😍','😎','👍','🙏','🔥','🎉','❤️','🌟','😉','🤔','😭','😅','👌','👏','💯','🍀','🫶','🙌','🤩','😴','😇','🤗','🤨','😐','🤝'];
 function buildEmojiPop(){
   emojiPop.innerHTML='';
