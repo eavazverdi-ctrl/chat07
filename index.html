@@ -36,9 +36,9 @@
     }
     .hidden{display:none!important}
     main{flex:1;display:flex;flex-direction:column;max-width:900px;margin:0 auto;width:100%;min-height:0;padding:12px 12px;gap:10px; touch-action: none;}
-    .bar{display:flex;gap:8px}
     .btn-glass{border:1px solid var(--border); background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04)); -webkit-backdrop-filter: blur(8px) saturate(140%); backdrop-filter: blur(8px) saturate(140%); color:#fff; border-radius:14px; padding:10px 14px; cursor:pointer; font-weight:700;}
     .divider{height:1px; background:linear-gradient(90deg, rgba(255,255,255,.0), rgba(255,255,255,.25), rgba(255,255,255,.0)); margin:8px 0;}
+
     #roomsView{display:flex;flex-direction:column;gap:10px; flex:1; min-height:0;}
     .room-btn{width:100%; text-align:right; display:flex; align-items:center; justify-content:space-between; padding:14px 16px; font-size:16px; border:1px solid var(--border); border-radius:14px; background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05)); -webkit-backdrop-filter: blur(8px) saturate(140%); backdrop-filter: blur(8px) saturate(140%); color:#fff}
     .room-meta{font-size:12px; opacity:.8}
@@ -55,7 +55,6 @@
     .filelink{color:#93c5fd;text-decoration:none}
     .thumb{max-width:100%;height:auto;border-radius:12px;border:1px solid rgba(255,255,255,.15)}
 
-    /* Input bar: icons inside text */
     form#chatForm{direction:ltr; display:block; width:100%;}
     .input-wrap{position:relative; display:flex; align-items:center; border-radius:16px; border:1px solid var(--border); background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)); padding:6px; }
     #text{flex:1 1 auto; min-width:0;border-radius:12px;border:1px solid rgba(255,255,255,.25); background:rgba(0,0,0,.35);color:#fff;padding:10px 120px 10px 12px; direction:rtl;text-align:right; font-family:inherit; font-size:16px; width:100%;}
@@ -78,21 +77,15 @@
     .rowEq{display:grid; grid-template-columns:1fr 1fr; gap:8px; align-items:stretch}
     .btn{border:none;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer;font-size:16px}
     .btn.glass{border:1px solid var(--border);background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05)); color:#fff}
-    .btn.glass.danger{border-color:rgba(255,0,0,.35); background:linear-gradient(180deg, rgba(239,68,68,.25), rgba(239,68,68,.15)); color:#fff}
     .btn.full{width:100%}
     .hint{font-size:12px;opacity:.9}
 
-    /* error toast */
     #errToast{position:fixed;left:12px;bottom:12px;z-index:100;padding:10px 12px;border-radius:12px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.4);color:#fff;max-width:90vw;font-size:12px;display:none}
   </style>
 </head>
 <body>
   <main>
     <section id="roomsView">
-      <div class="bar">
-        <button id="addRoomBtn" class="btn btn-glass" type="button">➕ ایجاد چت جدید</button>
-      </div>
-      <div id="roomsDivider" class="divider hidden"></div>
       <div id="roomsList"></div>
     </section>
 
@@ -115,7 +108,27 @@
     </section>
   </main>
 
-  <!-- Gate modal -->
+  <!-- Claim modal (first user sets name & pass) -->
+  <div id="claimModal" class="modal" role="dialog" aria-modal="true">
+    <div class="card">
+      <h2>تعریف نام و پسورد اتاق</h2>
+      <div class="field">
+        <label for="claimName">نام جدید این چت روم</label>
+        <input id="claimName" />
+      </div>
+      <div class="field">
+        <label for="claimPass">پسورد</label>
+        <input id="claimPass" />
+      </div>
+      <div class="rowEq">
+        <button id="claimOK" class="btn glass" type="button">تأیید</button>
+        <button id="claimCancel" class="btn glass" type="button">انصراف</button>
+      </div>
+      <div id="claimHint" class="hint"></div>
+    </div>
+  </div>
+
+  <!-- Gate modal (join existing) -->
   <div id="roomGateModal" class="modal" role="dialog" aria-modal="true">
     <div class="card">
       <h2 id="gateTitle">ورود به اتاق</h2>
@@ -132,26 +145,6 @@
         <button id="gateCancel" class="btn glass" type="button">انصراف</button>
       </div>
       <div id="gateHint" class="hint"></div>
-    </div>
-  </div>
-
-  <!-- Create-room modal -->
-  <div id="createRoomModal" class="modal" role="dialog" aria-modal="true">
-    <div class="card">
-      <h2>ایجاد اتاق جدید</h2>
-      <div class="field">
-        <label for="roomNameInput">نام اتاق</label>
-        <input id="roomNameInput" placeholder="مثلاً: دوستان" />
-      </div>
-      <div class="field">
-        <label for="roomPassInput">پسورد اتاق</label>
-        <input id="roomPassInput" placeholder="مثلاً: 1234" />
-      </div>
-      <div class="rowEq">
-        <button id="createRoomBtn" class="btn glass" type="button">ساختن</button>
-        <button id="createRoomCancel" class="btn glass" type="button">انصراف</button>
-      </div>
-      <div id="createHint" class="hint"></div>
     </div>
   </div>
 
@@ -180,7 +173,6 @@
   </div>
 
   <div id="errToast"></div>
-
   <script type="module" src="main.js"></script>
 </body>
 </html>
