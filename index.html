@@ -3,6 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title> </title>
   <style>
     :root{
@@ -19,8 +22,12 @@
                   radial-gradient(1000px 700px at -10% 110%, #0ea5e9 0%, transparent 50%),
                   linear-gradient(180deg, var(--bg1), var(--bg2));
       background-attachment: fixed;
+      overflow:hidden; /* lock page scroll */
     }
-    main{flex:1;display:flex;flex-direction:column;max-width:900px;margin:0 auto;width:100%;min-height:0;padding:12px 16px;gap:10px}
+    main{
+      flex:1;display:flex;flex-direction:column;max-width:900px;margin:0 auto;width:100%;
+      min-height:0;padding:12px 16px;gap:10px
+    }
     #board{
       flex:1;overflow:auto;overflow-x:hidden;min-height:0;
       border:1px solid var(--border);border-radius:16px;
@@ -42,49 +49,50 @@
     .txt{white-space:pre-wrap;line-height:1.55;word-break:break-word;overflow-wrap:anywhere}
     .filelink{color:#93c5fd;text-decoration:none}
     .thumb{max-width:100%;height:auto;border-radius:12px;border:1px solid rgba(255,255,255,.15)}
-    /* Controls: buttons on right of input; half padding */
+    /* Controls row: visually buttons on LEFT of input using row-reverse */
     form#chatForm{
-      direction:ltr; display:grid; grid-template-columns: 1fr 44px; gap:8px;
-      padding:6px 8px; align-items:center; border-radius:16px;
+      display:flex; flex-direction:row-reverse; gap:8px; align-items:stretch;
+      padding:6px 8px; border-radius:16px;
       border:1px solid var(--border);
       background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
       -webkit-backdrop-filter: blur(8px) saturate(140%);
       backdrop-filter: blur(8px) saturate(140%);
     }
-    input{font-size:16px}
     #text{
-      min-width:0;border-radius:12px;border:1px solid rgba(255,255,255,.25);
+      flex:1 1 0%; min-width:0;
+      border-radius:12px;border:1px solid rgba(255,255,255,.25);
       background:rgba(0,0,0,.35);color:#fff;padding:8px 10px;
       direction:rtl;text-align:right
     }
-    label.file-btn{
-      display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;
-      background:rgba(0,0,0,.35);color:#e5e7eb;border:1px solid rgba(255,255,255,.25);
-      border-radius:12px;cursor:pointer;font-size:20px;line-height:1
+    label.icon-btn, button.icon-btn{
+      display:flex;align-items:center;justify-content:center;
+      width:48px; /* equal height with input via align-items:stretch */
+      border-radius:12px; cursor:pointer; font-size:20px; line-height:1;
+      background:rgba(0,0,0,.35); color:#e5e7eb; border:1px solid rgba(255,255,255,.25);
+      user-select:none
     }
     input[type=file]{display:none}
-    /* Name modal */
-    #nameModal{
-      position:fixed;inset:0;background:rgba(0,0,0,.45);
-      display:flex;align-items:center;justify-content:center;z-index:30
-    }
-    #nameCard{
-      width:min(92vw,420px);
-      background:var(--glass);
+    /* Modals */
+    .modal{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:30 }
+    .modal[open]{ display:flex }
+    .card{
+      width:min(92vw,460px); background:var(--glass);
       -webkit-backdrop-filter: blur(16px) saturate(160%);
       backdrop-filter: blur(16px) saturate(160%);
       border:1px solid var(--border); border-radius:16px; padding:18px; color:#fff;
       display:flex; flex-direction:column; gap:10px
     }
-    #nameCard h2{margin:0;font-size:18px}
-    #nameCard input{
+    .card h2{margin:0;font-size:18px}
+    .field{display:flex;flex-direction:column;gap:6px}
+    .field input{
       border-radius:12px;border:1px solid rgba(255,255,255,.25);
       background:rgba(0,0,0,.35);color:#fff;padding:10px;font-size:16px; direction:rtl; text-align:right
     }
-    #saveName{
-      border:none;border-radius:12px;background:#22c55e;color:#0b1220;padding:10px 14px;
-      font-weight:700;cursor:pointer;font-size:16px
-    }
+    .row{display:flex;gap:8px;align-items:center}
+    .row > *{flex:1}
+    .btn{border:none;border-radius:12px;background:#22c55e;color:#0b1220;padding:10px 14px;font-weight:700;cursor:pointer;font-size:16px}
+    .btn.secondary{background:#334155;color:#e5e7eb}
+    .hint{font-size:12px;opacity:.9}
   </style>
 </head>
 <body>
@@ -93,18 +101,51 @@
 
     <form id="chatForm">
       <input id="text" placeholder="پیام خود را بنویسید…" autocomplete="off" />
-      <label id="fileBtn" class="file-btn" title="بارگذاری فایل">📎
+      <label id="fileBtn" class="icon-btn" title="بارگذاری فایل">📎
         <input type="file" id="fileInput" accept="*/*;capture=camera,image/*" />
       </label>
+      <button type="button" id="settingsBtn" class="icon-btn" title="تنظیمات">⚙️</button>
     </form>
   </main>
 
-  <!-- Name Modal -->
-  <div id="nameModal" hidden>
-    <div id="nameCard">
-      <h2>نام خود را وارد کنید</h2>
-      <input id="nameInput" placeholder="مثلاً: علی" />
-      <button id="saveName">ذخیره</button>
+  <!-- Name + passcode Modal -->
+  <div id="nameModal" class="modal">
+    <div class="card">
+      <h2>ورود به اتاق</h2>
+      <div class="field">
+        <label>نام</label>
+        <input id="nameInput" placeholder="مثلاً: علی" />
+      </div>
+      <div class="field">
+        <label>رمز ورود (عددی): <span class="hint">باید 2025 باشد</span></label>
+        <input id="passInput" inputmode="numeric" pattern="[0-9]*" placeholder="2025" />
+      </div>
+      <div class="row">
+        <button id="saveName" class="btn">ورود</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="modal">
+    <div class="card">
+      <h2>تنظیمات</h2>
+      <div class="field">
+        <label>تغییر نام</label>
+        <div class="row">
+          <input id="newName" placeholder="نام جدید" />
+          <button id="applyName" class="btn">ذخیره</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>حذف همه پیام‌ها</label>
+        <input id="wipePass" placeholder='برای تأیید بنویسید: delete all' />
+        <div class="row">
+          <button id="wipeBtn" class="btn secondary">حذف</button>
+          <button id="closeSettings" class="btn">بستن</button>
+        </div>
+        <div id="wipeStatus" class="hint"></div>
+      </div>
     </div>
   </div>
 
