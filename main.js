@@ -1,4 +1,4 @@
-// v15.1 hardened: try/catch around room listing; same features
+// v15.2 CSP-friendly (Firestore Lite) + label 'for' + same features
 const ENTRY_PASSCODE = "2025";
 const WIPE_PASSWORD = "delete all";
 const MAX_BYTES = 900 * 1024;
@@ -6,7 +6,7 @@ let START_MAX_W = 2560, START_QUALITY = 0.85, MIN_QUALITY = 0.15, MIN_WIDTH = 64
 
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc, writeBatch, getDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc, writeBatch, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-lite.js";
 
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
@@ -31,7 +31,6 @@ const sendBtn = document.getElementById('sendBtn');
 const emojiBtn = document.getElementById('emojiBtn');
 const emojiPop = document.getElementById('emojiPop');
 
-const settingsBtn = document.getElementById('settingsBtn');
 const settingsModal = document.getElementById('settingsModal');
 const newName = document.getElementById('newName');
 const fontSizeSel = document.getElementById('fontSizeSel');
@@ -152,10 +151,8 @@ async function enterRoom(e){
 
 let currentRoomId=null, pollTimer=null, rendered=new Set(), msgsCol=null;
 
-const board = document.getElementById('board');
 function clearBoard(){ board.innerHTML = '<div class="push"></div>'; rendered = new Set(); }
-function showRooms(){ chatView.classList.add('hidden'); roomsView.classList.remove('hidden'); stopPolling(); }
-function showChat(){ roomsView.classList.add('hidden'); chatView.classList.remove('hidden'); }
+function showChat(){ document.getElementById('roomsView').classList.add('hidden'); document.getElementById('chatView').classList.remove('hidden'); }
 function stopPolling(){ if (pollTimer) { clearInterval(pollTimer); pollTimer=null; } }
 
 async function startRoom(roomId, roomName){
@@ -248,7 +245,6 @@ async function sendMessage(e){
 }
 
 const EMOJIS = ['🙂','😂','😍','😎','👍','🙏','🔥','🎉','❤️','🌟','😉','🤔','😭','😅','👌','👏','💯','🍀','🫶','🙌','🤩','😴','😇','🤗','🤨','😐','🤝'];
-const emojiPop = document.getElementById('emojiPop');
 function buildEmojiPop(){
   emojiPop.innerHTML = '';
   EMOJIS.forEach(ch=>{
@@ -259,7 +255,7 @@ function buildEmojiPop(){
   });
 }
 buildEmojiPop();
-document.getElementById('emojiBtn').addEventListener('click', ()=>{
+emojiBtn.addEventListener('click', ()=>{
   emojiPop.classList.toggle('open');
 });
 document.addEventListener('click', (e)=>{
@@ -305,8 +301,7 @@ async function compressImageSmart(file){
   let width = Math.min(START_MAX_W, img.naturalWidth || START_MAX_W);
   let quality = START_QUALITY;
   let mime = 'image/webp';
-  const cv0 = document.createElement('canvas'); cv0.width = 1; cv0.height = 1;
-  try { cv0.toDataURL('image/webp', .5); } catch { mime = 'image/jpeg'; }
+  try { const cv0 = document.createElement('canvas'); cv0.toDataURL('image/webp', .5); } catch { mime = 'image/jpeg'; }
   let out = null;
   for (let i=0;i<40;i++){
     const cv = await drawToCanvas(img, width);
@@ -354,12 +349,6 @@ fileInput.addEventListener('change', async ()=>{
   }
 });
 
-settingsBtn.addEventListener('click', ()=>{
-  settingsModal.setAttribute('open','');
-  newName.value = displayName || "";
-  fontSizeSel.value = fontSize;
-  setTimeout(()=> newName && newName.focus(), 0);
-});
 settingsOK.addEventListener('click', ()=>{
   const v = (newName.value||'').trim();
   if (v && v !== displayName){
