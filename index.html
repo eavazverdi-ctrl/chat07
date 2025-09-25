@@ -7,6 +7,21 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title></title>
+
+  <!-- ✅ CSP سازگار با Firestore Lite و بدون unsafe-eval -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' https://www.gstatic.com;
+    connect-src 'self' https://firestore.googleapis.com https://www.googleapis.com;
+    img-src 'self' data: blob:;
+    style-src 'self' 'unsafe-inline';
+    font-src 'self' data:;
+    object-src 'none';
+    base-uri 'self';
+    frame-ancestors 'self';
+    worker-src 'self' blob:;
+  ">
+
   <style>
     @font-face{
       font-family:"IRANSans";
@@ -109,27 +124,7 @@
     </section>
   </main>
 
-  <!-- Room Gate Modal (name + room password) -->
-  <div id="roomGateModal" class="modal" role="dialog" aria-modal="true">
-    <div class="card">
-      <h2 id="gateTitle">ورود به اتاق</h2>
-      <div class="field">
-        <label for="gateName">نام</label>
-        <input id="gateName" placeholder="نام شما" />
-      </div>
-      <div class="field">
-        <label for="gatePass">پسورد اتاق</label>
-        <input id="gatePass" placeholder="…" />
-      </div>
-      <div class="row70">
-        <div></div>
-        <button id="gateEnter" class="btn glass">ورود</button>
-      </div>
-      <div id="gateHint" class="hint"></div>
-    </div>
-  </div>
-
-  <!-- Settings Modal (همان قبلی) -->
+  <!-- Settings Modal (ثابت) -->
   <div id="settingsModal" class="modal" role="dialog" aria-modal="true">
     <div class="card">
       <h2>تنظیمات</h2>
