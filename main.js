@@ -1,12 +1,12 @@
-// v20.1: 5 fixed rooms with first-claim setup, cross-device via Firestore.
+// v20.2: 5 fixed rooms + local persistence on send/upload + unsent queue + safe poll not wiping cache.
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-import { getFirestore, collection, doc, getDoc, setDoc, addDoc, getDocs, orderBy, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-lite.js";
+import { getFirestore, collection, doc, getDoc, setDoc, getDocs, orderBy, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-lite.js";
 
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
 
-const LS = (k)=> 'v20_1_'+k;
+const LS = (k)=> 'v20_2_'+k;
 const uid = localStorage.getItem(LS('uid')) || (()=>{ const v=Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(LS('uid'), v); return v; })();
 let displayName = localStorage.getItem(LS('name')) || "";
 let fontSize = localStorage.getItem(LS('fsize')) || "16px";
@@ -62,7 +62,7 @@ const settingsOK = document.getElementById('settingsOK');
 
 // State
 let rooms = PRESET.map(x=> ({...x, name:x.defaultName, initialized:false}));
-let currentRoom = null, msgsCol=null, pollTimer=null, rendered=new Set();
+let currentRoom = null, pollTimer=null, rendered=new Set();
 let currentRoomId = null;
 
 // UI helpers
@@ -93,7 +93,7 @@ async function fetchRoomStates(){
         r.name = r.defaultName;
         r.initialized = false;
       }
-    }catch(e){ /* ignore network/rules */ }
+    }catch(e){ /* ignore */ }
   }
   renderRooms();
 }
@@ -105,7 +105,6 @@ let pendingRoom=null;
 function onRoomClick(r){
   pendingRoom = r;
   if (r.initialized){
-    // already set -> gate (unless locally unlocked)
     if (localStorage.getItem(LS('access:'+r.id))==='ok'){ startRoom(r); return; }
     gateTitle.textContent='ورود به اتاق: '+(r.name||r.defaultName);
     gateHint.textContent='';
@@ -114,7 +113,6 @@ function onRoomClick(r){
     roomGateModal.setAttribute('open','');
     setTimeout(()=> (displayName? gatePass : gateName).focus(), 0);
   } else {
-    // first claim
     claimName.value = r.name || r.defaultName;
     claimPass.value = DEFAULT_PASS;
     claimHint.textContent='';
@@ -219,10 +217,15 @@ function renderBlob(m, force=false){
   if (force || userPinnedToBottom) scrollToBottom();
 }
 
+// Local persist helpers
 function keyLocal(roomId){ return LS('local:'+roomId); }
 function loadLocalMsgs(roomId){ try{ return JSON.parse(localStorage.getItem(keyLocal(roomId))||'[]'); }catch{ return []; } }
 function saveLocalMsgs(roomId, list){ localStorage.setItem(keyLocal(roomId), JSON.stringify(list)); }
+function keyUnsent(roomId){ return LS('unsent:'+roomId); }
+function loadUnsent(roomId){ try{ return JSON.parse(localStorage.getItem(keyUnsent(roomId))||'[]'); }catch{ return []; } }
+function saveUnsent(roomId, list){ localStorage.setItem(keyUnsent(roomId), JSON.stringify(list)); }
 
+// Start room
 async function startRoom(room){
   currentRoom = room; currentRoomId = room.id;
   showChat();
@@ -232,9 +235,10 @@ async function startRoom(room){
   setTimeout(scrollToBottom, 20);
   await poll();
   if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(poll, 3000);
+  pollTimer = setInterval(async ()=>{ await poll(); await flushUnsent(); }, 3000);
 }
 
+// Poll messages; don't wipe local cache if server returns 0
 async function poll(){
   if (!currentRoom) return;
   try{
@@ -245,9 +249,21 @@ async function poll(){
       if (m.type==='img') renderImage(m);
       if (m.type==='blob') renderBlob(m);
     });
-    saveLocalMsgs(currentRoom.id, list.slice(-500));
+    if (list.length>0){
+      saveLocalMsgs(currentRoom.id, list.slice(-500));
+    }
     if (userPinnedToBottom) scrollToBottom();
   }catch(e){}
+}
+async function flushUnsent(){
+  if (!currentRoom) return;
+  const q = loadUnsent(currentRoom.id); if (!q.length) return;
+  const rest = [];
+  for (const m of q){
+    try{ await setDoc(doc(db,'rooms', currentRoom.id, 'messages', m.cid), m); }
+    catch(e){ rest.push(m); }
+  }
+  saveUnsent(currentRoom.id, rest);
 }
 
 // Submit text
@@ -258,7 +274,13 @@ form.addEventListener('submit', async (e)=>{
   const cid = Date.now()+'-'+Math.random().toString(36).slice(2); const ts=Date.now();
   const m = {type:'txt', text, uid, name: displayName, cid, ts, t: serverTimestamp()};
   renderText(m, true); input.value='';
-  try{ await setDoc(doc(db,'rooms', currentRoom.id, 'messages', cid), m); }catch(e){ toast('ارسال ناموفق — قواعد دسترسی؟'); }
+  // local mirror immediately
+  { const loc = loadLocalMsgs(currentRoom.id); loc.push(m); saveLocalMsgs(currentRoom.id, loc.slice(-500)); }
+  try{ await setDoc(doc(db,'rooms', currentRoom.id, 'messages', cid), m); }
+  catch(e){
+    const q = loadUnsent(currentRoom.id); q.push(m); saveUnsent(currentRoom.id, q.slice(-200));
+    toast('ارسال ناموفق — در صف آفلاین قرار گرفت');
+  }
 });
 
 // Emoji
@@ -301,12 +323,16 @@ fileInput.addEventListener('change', async ()=>{
       if (b64Bytes(dataUrl)>MAX_BYTES){ temp.textContent='تصویر بسیار بزرگ است.'; return; }
       temp.parentElement.remove(); const m={type:'img', name, dataUrl, uid, name: displayName, cid, ts, t: serverTimestamp()};
       renderImage(m, true);
-      try{ await setDoc(doc(db,'rooms', currentRoom.id, 'messages', cid), m); }catch(e){ toast('ارسال فایل ناموفق — Rules؟'); }
+      { const loc = loadLocalMsgs(currentRoom.id); loc.push(m); saveLocalMsgs(currentRoom.id, loc.slice(-500)); }
+      try{ await setDoc(doc(db,'rooms', currentRoom.id, 'messages', cid), m); }
+      catch(e){ const q = loadUnsent(currentRoom.id); q.push(m); saveUnsent(currentRoom.id, q.slice(-200)); toast('ارسال فایل ناموفق — در صف آفلاین قرار گرفت'); }
     } else {
       const raw=await readAsDataURL(file); if (b64Bytes(raw)>MAX_BYTES){ temp.textContent='حجم فایل زیاد است (~1.2MB).'; return; }
       temp.parentElement.remove(); const m={type:'blob', name, dataUrl: raw, uid, name: displayName, cid, ts, t: serverTimestamp()};
       renderBlob(m, true);
-      try{ await setDoc(doc(db,'rooms', currentRoom.id, 'messages', cid), m); }catch(e){ toast('ارسال فایل ناموفق — Rules؟'); }
+      { const loc = loadLocalMsgs(currentRoom.id); loc.push(m); saveLocalMsgs(currentRoom.id, loc.slice(-500)); }
+      try{ await setDoc(doc(db,'rooms', currentRoom.id, 'messages', cid), m); }
+      catch(e){ const q = loadUnsent(currentRoom.id); q.push(m); saveUnsent(currentRoom.id, q.slice(-200)); toast('ارسال فایل ناموفق — در صف آفلاین قرار گرفت'); }
     }
     fileInput.value='';
   }catch(e){ temp.textContent='خطا در پردازش فایل.'; }
