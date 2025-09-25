@@ -38,6 +38,18 @@ const fileInput = document.getElementById('fileInput');
 const emojiBtn = document.getElementById('emojiBtn');
 const emojiPop = document.getElementById('emojiPop');
 const settingsBtn = document.getElementById('settingsBtn');
+// UI helpers
+function showRooms(){ 
+  const roomsView = document.getElementById('roomsView'); 
+  const chatView = document.getElementById('chatView'); 
+  if (roomsView && chatView){ chatView.classList.add('hidden'); roomsView.classList.remove('hidden'); }
+}
+function showChat(){ 
+  const roomsView = document.getElementById('roomsView'); 
+  const chatView = document.getElementById('chatView'); 
+  if (roomsView && chatView){ roomsView.classList.add('hidden'); chatView.classList.remove('hidden'); }
+}
+
 
 // Modals
 const claimModal = document.getElementById('claimModal');
