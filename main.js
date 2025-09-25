@@ -184,9 +184,6 @@ async function enterRoom(e){
 }
 
 // ---------- Chat ----------
-const settingsOK = document.getElementById('settingsOK');
-const newName = document.getElementById('newName');
-const fontSizeSel = document.getElementById('fontSizeSel');
 settingsBtn.addEventListener('click', ()=>{ newName.value=displayName||''; fontSizeSel.value=fontSize; settingsModal.setAttribute('open',''); });
 settingsOK.addEventListener('click', ()=>{ const v=(newName.value||'').trim(); if(v && v!==displayName){ displayName=v; localStorage.setItem(LS('name'), v); } fontSize=fontSizeSel.value||'16px'; document.documentElement.style.setProperty('--msg-fs', fontSize); localStorage.setItem(LS('fsize'), fontSize); settingsModal.removeAttribute('open'); });
 
