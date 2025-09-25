@@ -2,7 +2,7 @@
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -12,6 +12,7 @@
       --bg1:#0f172a; --bg2:#1e293b; --accent:#2563eb;
       --text:#e5e7eb; --border:rgba(255,255,255,.22);
       --glass:rgba(255,255,255,.10); --glass-you:rgba(37,99,235,.22);
+      --danger:#ef4444;
     }
     *{box-sizing:border-box}
     html,body{height:100%}
@@ -23,6 +24,7 @@
                   linear-gradient(180deg, var(--bg1), var(--bg2));
       background-attachment: fixed;
       overflow:hidden; /* lock page scroll */
+      -webkit-text-size-adjust: 100%; /* iOS text zoom guard */
     }
     main{
       flex:1;display:flex;flex-direction:column;max-width:900px;margin:0 auto;width:100%;
@@ -49,24 +51,26 @@
     .txt{white-space:pre-wrap;line-height:1.55;word-break:break-word;overflow-wrap:anywhere}
     .filelink{color:#93c5fd;text-decoration:none}
     .thumb{max-width:100%;height:auto;border-radius:12px;border:1px solid rgba(255,255,255,.15)}
-    /* Controls row: visually buttons on LEFT of input using row-reverse */
+    /* Controls as grid: [file][settings][input]; buttons on LEFT of input */
     form#chatForm{
-      display:flex; flex-direction:row-reverse; gap:8px; align-items:stretch;
+      direction:ltr;
+      display:grid; grid-template-columns: auto auto 1fr; gap:8px; align-items:stretch;
       padding:6px 8px; border-radius:16px;
       border:1px solid var(--border);
       background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
       -webkit-backdrop-filter: blur(8px) saturate(140%);
       backdrop-filter: blur(8px) saturate(140%);
+      touch-action: manipulation;
     }
+    input,button,label{font-size:16px}
     #text{
-      flex:1 1 0%; min-width:0;
-      border-radius:12px;border:1px solid rgba(255,255,255,.25);
-      background:rgba(0,0,0,.35);color:#fff;padding:8px 10px;
+      min-width:0;border-radius:12px;border:1px solid rgba(255,255,255,.25);
+      background:rgba(0,0,0,.35);color:#fff;padding:8px 12px;
       direction:rtl;text-align:right
     }
-    label.icon-btn, button.icon-btn{
+    .icon-btn{
       display:flex;align-items:center;justify-content:center;
-      width:48px; /* equal height with input via align-items:stretch */
+      height:100%; min-height:44px; width:48px;
       border-radius:12px; cursor:pointer; font-size:20px; line-height:1;
       background:rgba(0,0,0,.35); color:#e5e7eb; border:1px solid rgba(255,255,255,.25);
       user-select:none
@@ -76,11 +80,11 @@
     .modal{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:30 }
     .modal[open]{ display:flex }
     .card{
-      width:min(92vw,460px); background:var(--glass);
+      width:min(92vw,480px); background:var(--glass);
       -webkit-backdrop-filter: blur(16px) saturate(160%);
       backdrop-filter: blur(16px) saturate(160%);
       border:1px solid var(--border); border-radius:16px; padding:18px; color:#fff;
-      display:flex; flex-direction:column; gap:10px
+      display:flex; flex-direction:column; gap:12px
     }
     .card h2{margin:0;font-size:18px}
     .field{display:flex;flex-direction:column;gap:6px}
@@ -88,10 +92,11 @@
       border-radius:12px;border:1px solid rgba(255,255,255,.25);
       background:rgba(0,0,0,.35);color:#fff;padding:10px;font-size:16px; direction:rtl; text-align:right
     }
-    .row{display:flex;gap:8px;align-items:center}
-    .row > *{flex:1}
+    .row70{display:grid; grid-template-columns:70% 30%; gap:8px; align-items:stretch}
     .btn{border:none;border-radius:12px;background:#22c55e;color:#0b1220;padding:10px 14px;font-weight:700;cursor:pointer;font-size:16px}
     .btn.secondary{background:#334155;color:#e5e7eb}
+    .btn.danger{background:var(--danger); color:#fff}
+    .btn.full{width:100%}
     .hint{font-size:12px;opacity:.9}
   </style>
 </head>
@@ -100,11 +105,12 @@
     <div id="board" aria-live="polite"></div>
 
     <form id="chatForm">
-      <input id="text" placeholder="پیام خود را بنویسید…" autocomplete="off" />
+      <!-- order matters for grid: left to right -->
       <label id="fileBtn" class="icon-btn" title="بارگذاری فایل">📎
         <input type="file" id="fileInput" accept="*/*;capture=camera,image/*" />
       </label>
       <button type="button" id="settingsBtn" class="icon-btn" title="تنظیمات">⚙️</button>
+      <input id="text" placeholder="پیام خود را بنویسید…" autocomplete="off" />
     </form>
   </main>
 
@@ -120,7 +126,8 @@
         <label>رمز ورود (عددی): <span class="hint">باید 2025 باشد</span></label>
         <input id="passInput" inputmode="numeric" pattern="[0-9]*" placeholder="2025" />
       </div>
-      <div class="row">
+      <div class="row70">
+        <div></div>
         <button id="saveName" class="btn">ورود</button>
       </div>
     </div>
@@ -132,20 +139,20 @@
       <h2>تنظیمات</h2>
       <div class="field">
         <label>تغییر نام</label>
-        <div class="row">
+        <div class="row70">
           <input id="newName" placeholder="نام جدید" />
           <button id="applyName" class="btn">ذخیره</button>
         </div>
       </div>
       <div class="field">
         <label>حذف همه پیام‌ها</label>
-        <input id="wipePass" placeholder='برای تأیید بنویسید: delete all' />
-        <div class="row">
-          <button id="wipeBtn" class="btn secondary">حذف</button>
-          <button id="closeSettings" class="btn">بستن</button>
+        <div class="row70">
+          <input id="wipePass" placeholder='برای تأیید بنویسید: delete all' />
+          <button id="wipeBtn" class="btn danger">حذف</button>
         </div>
         <div id="wipeStatus" class="hint"></div>
       </div>
+      <button id="settingsOK" class="btn full">OK</button>
     </div>
   </div>
 

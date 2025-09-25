@@ -1,4 +1,4 @@
-// v11: settings, passcode gate, left-side file button, fixed page, inline-only
+// v12: form buttons on LEFT, no page zoom/scroll, auto-scroll to bottom, settings layout 70/30, batch wipe
 const ROOM_ID = "global-room-1";
 const POLL_MS = 3000;
 const MAX_BYTES = 850 * 1024;
@@ -8,16 +8,16 @@ const WIPE_PASSWORD = "delete all";
 
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc, writeBatch, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 // Init
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
 
 // Identity
-const UID_KEY = "local_uid_v11";
-const NAME_KEY = "display_name_v11";
-const PASS_OK_KEY = "entry_ok_v11";
+const UID_KEY = "local_uid_v12";
+const NAME_KEY = "display_name_v12";
+const PASS_OK_KEY = "entry_ok_v12";
 const uid = localStorage.getItem(UID_KEY) || (() => {
   const v = Math.random().toString(36).slice(2) + Date.now().toString(36);
   localStorage.setItem(UID_KEY, v);
@@ -50,11 +50,9 @@ function tryEnter(e){
   } catch {}
   closeNameModal();
 }
-
 saveName.addEventListener("click", tryEnter);
 nameInput.addEventListener("keydown", (e)=>{ if (e.key === "Enter") tryEnter(e); });
 passInput.addEventListener("keydown", (e)=>{ if (e.key === "Enter") tryEnter(e); });
-
 if (!localStorage.getItem(PASS_OK_KEY) || !displayName) openNameModal();
 
 // UI
@@ -64,7 +62,11 @@ const input = document.getElementById("text");
 const fileInput = document.getElementById("fileInput");
 const settingsBtn = document.getElementById("settingsBtn");
 
+// Prevent page scroll bouncing on iOS within board
+board.addEventListener('touchmove', ()=>{}, {passive:true});
+
 function hashHue(s){ let h=0; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))%360; return h; }
+function scrollToBottom(){ board.scrollTop = board.scrollHeight; }
 function addTile({you, who, el}){
   const tile = document.createElement('div'); tile.className = 'tile' + (you? ' you' : '');
   if (!you){
@@ -74,7 +76,8 @@ function addTile({you, who, el}){
   }
   const w = document.createElement('div'); w.className='who'; w.textContent = who || "ناشناس";
   tile.appendChild(w); tile.appendChild(el);
-  board.appendChild(tile); board.scrollTop = board.scrollHeight;
+  board.appendChild(tile);
+  scrollToBottom();
 }
 const rendered = new Set();
 function renderText(m){
@@ -114,6 +117,8 @@ async function poll(){
       if (m.type==='img') renderImage(m);
       if (m.type==='blob') renderBlob(m);
     });
+    // ensure bottom on initial and periodic
+    setTimeout(scrollToBottom, 0);
   }catch(e){ /* ignore */ }
 }
 await poll();
@@ -133,7 +138,7 @@ form.addEventListener('submit', async (e)=>{
   }catch(e){ /* ignore */ }
 });
 
-// File handling (inline)
+// File inline
 const b64Bytes = (dataUrl)=>{
   const b64 = (dataUrl.split(',')[1]||'').replace(/\s+/g,'');
   const pad = (b64.endsWith('==')?2:(b64.endsWith('=')?1:0));
@@ -212,15 +217,14 @@ const newName = document.getElementById("newName");
 const applyName = document.getElementById("applyName");
 const wipePass = document.getElementById("wipePass");
 const wipeBtn = document.getElementById("wipeBtn");
-const closeSettings = document.getElementById("closeSettings");
-const wipeStatus = document.getElementById("wipeStatus");
+const settingsOK = document.getElementById("settingsOK");
 
 settingsBtn.addEventListener("click", ()=>{
   settingsModal.setAttribute("open","");
   newName.value = displayName || "";
   setTimeout(()=> newName && newName.focus(), 0);
 });
-closeSettings.addEventListener("click", ()=> settingsModal.removeAttribute("open"));
+settingsOK.addEventListener("click", ()=> settingsModal.removeAttribute("open"));
 
 applyName.addEventListener("click", (e)=>{
   e.preventDefault();
@@ -228,26 +232,35 @@ applyName.addEventListener("click", (e)=>{
   if (!v) { newName.focus(); return; }
   displayName = v;
   try { localStorage.setItem(NAME_KEY, displayName); } catch {}
-  settingsModal.removeAttribute("open");
 });
 
 wipeBtn.addEventListener("click", async (e)=>{
   e.preventDefault();
   const pw = (wipePass.value || "").trim();
-  if (pw !== WIPE_PASSWORD) { wipeStatus.textContent = "رمز حذف صحیح نیست."; return; }
-  wipeStatus.textContent = "در حال حذف...";
+  const status = document.getElementById("wipeStatus");
+  if (pw != "delete all") { status.textContent = "رمز حذف صحیح نیست."; return; }
+  status.textContent = "در حال حذف...";
   try{
-    const snap = await getDocs(query(msgsCol));
-    const batch = writeBatch(db);
-    let count = 0;
-    snap.forEach(d=>{ batch.delete(d.ref); count++; });
-    await batch.commit();
-    wipeStatus.textContent = "همهٔ پیام‌ها حذف شد.";
-    // Reset UI
+    let total = 0;
+    while (true){
+      const snap = await getDocs(query(msgsCol));
+      if (snap.empty) break;
+      const batch = writeBatch(db);
+      let count = 0;
+      snap.forEach(d=>{ if (count < 450){ batch.delete(d.ref); count++; } });
+      if (count === 0) break;
+      await batch.commit();
+      total += count;
+    }
+    // clear UI
     const tiles = document.querySelectorAll('#board .tile');
     tiles.forEach(t=>t.remove());
     rendered.clear();
+    status.textContent = "همهٔ پیام‌ها حذف شد.";
   }catch(e){
-    wipeStatus.textContent = "خطا در حذف (Rules/Network).";
+    status.textContent = "خطا در حذف (Rules/Network).";
   }
 });
+
+// Auto-scroll on initial load after a tick (in case of cached paints)
+setTimeout(()=> scrollToBottom(), 50);
