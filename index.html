@@ -6,8 +6,15 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
-  <title> </title>
+  <title></title>
   <style>
+    @font-face{
+      font-family:"IRANSans";
+      src:url("fonts/IRANSans.woff2") format("woff2");
+      font-weight: 100 900;
+      font-style: normal;
+      font-display: swap;
+    }
     :root{
       --bg1:#0f172a; --bg2:#1e293b; --accent:#2563eb;
       --text:#e5e7eb; --border:rgba(255,255,255,.22);
@@ -17,13 +24,9 @@
     }
     *{box-sizing:border-box}
     html,body{height:100%}
-    html, body {
-      overflow: hidden;
-      overscroll-behavior: none;
-      -webkit-overflow-scrolling: auto;
-    }
+    html, body { overflow: hidden; overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
     body{
-      margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);
+      margin:0;font-family:"IRANSans","Vazirmatn",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);
       display:flex;flex-direction:column;height:100%;
       background: radial-gradient(1200px 800px at 80% -10%, #1f2937 0%, transparent 60%),
                   radial-gradient(1000px 700px at -10% 110%, #0ea5e9 0%, transparent 50%),
@@ -32,20 +35,30 @@
       -webkit-text-size-adjust: 100%;
       touch-action: none;
     }
-    main{
-      flex:1;display:flex;flex-direction:column;max-width:900px;margin:0 auto;width:100%;
-      min-height:0;padding:12px 16px;gap:10px; touch-action: none;
+    .hidden{display:none !important}
+    main{flex:1;display:flex;flex-direction:column;max-width:900px;margin:0 auto;width:100%;min-height:0;padding:12px 16px;gap:10px; touch-action: none;}
+    #roomsView{display:flex;flex-direction:column;gap:10px}
+    .bar{display:flex;gap:8px}
+    .btn-glass{
+      border:1px solid var(--border);
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      -webkit-backdrop-filter: blur(8px) saturate(140%);
+      backdrop-filter: blur(8px) saturate(140%);
+      color:#fff; border-radius:14px; padding:10px 14px; cursor:pointer; font-weight:700;
     }
+    #addRoomBtn{align-self:flex-start}
+    .room-btn{width:100%; text-align:right; display:flex; align-items:center; justify-content:space-between; padding:14px 16px; font-size:16px}
+    .room-meta{font-size:12px; opacity:.8}
+    #chatView{display:flex;flex-direction:column;gap:10px}
     #board{
       flex:1;overflow:auto;overflow-x:hidden;min-height:0;
       border:1px solid var(--border);border-radius:16px;
       background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
       backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
       padding:12px;display:flex;flex-direction:column;gap:10px;
-      overscroll-behavior: contain;
-      touch-action: pan-y;
+      overscroll-behavior: contain; touch-action: pan-y;
     }
-    #board .push{flex:1 0 auto} /* pushes messages to bottom when not enough content */
+    #board .push{flex:1 0 auto}
     .tile{
       display:inline-flex;flex-direction:column;gap:4px;padding:6px 10px;border-radius:16px;
       border:1px solid var(--border);
@@ -61,76 +74,70 @@
     .meta{font-size:10px;opacity:.8;margin-top:2px;text-align:left;direction:ltr}
     .filelink{color:#93c5fd;text-decoration:none}
     .thumb{max-width:100%;height:auto;border-radius:12px;border:1px solid rgba(255,255,255,.15)}
-    /* Controls grid: [file][settings][input] */
     form#chatForm{
-      direction:ltr;
-      display:grid; grid-template-columns: auto auto 1fr; gap:8px; align-items:stretch;
-      padding:6px 8px; border-radius:16px;
-      border:1px solid var(--border);
+      direction:ltr; display:grid; grid-template-columns: auto 1fr auto; gap:8px; align-items:stretch;
+      padding:6px 8px; border-radius:16px; border:1px solid var(--border);
       background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-      -webkit-backdrop-filter: blur(8px) saturate(140%);
-      backdrop-filter: blur(8px) saturate(140%);
+      -webkit-backdrop-filter: blur(8px) saturate(140%); backdrop-filter: blur(8px) saturate(140%);
       touch-action: manipulation;
     }
-    input,button,label{font-size:16px}
-    #text{
-      min-width:0;border-radius:12px;border:1px solid rgba(255,255,255,.25);
-      background:rgba(0,0,0,.35);color:#fff;padding:8px 12px;
-      direction:rtl;text-align:right
-    }
-    .icon-btn{
-      display:flex;align-items:center;justify-content:center;
-      height:100%; min-height:44px; width:48px;
-      border-radius:12px; cursor:pointer; font-size:20px; line-height:1;
-      background:rgba(0,0,0,.35); color:#e5e7eb; border:1px solid rgba(255,255,255,.25);
-      user-select:none
-    }
+    .icon-btn{display:flex;align-items:center;justify-content:center;height:100%; min-height:44px; width:48px;border-radius:12px; cursor:pointer; font-size:20px; line-height:1; background:rgba(0,0,0,.35); color:#e5e7eb; border:1px solid rgba(255,255,255,.25); user-select:none}
     input[type=file]{display:none}
-    /* Modals */
+    .input-wrap{position:relative; display:flex}
+    #text{flex:1 1 auto; min-width:0;border-radius:12px;border:1px solid rgba(255,255,255,.25); background:rgba(0,0,0,.35);color:#fff;padding:8px 44px 8px 12px; direction:rtl;text-align:right; font-family:inherit; font-size:16px;}
+    .emoji-btn{position:absolute; right:8px; top:50%; transform:translateY(-50%); width:28px;height:28px;border-radius:8px; font-size:18px; line-height:1; display:flex;align-items:center;justify-content:center; cursor:pointer; background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.25);}
+    #sendBtn{width:48px; height:48px; border-radius:9999px; background:linear-gradient(180deg, rgba(59,130,246,.7), rgba(37,99,235,.65)); border:1px solid rgba(147,197,253,.6); color:#fff; font-size:20px; display:flex; align-items:center; justify-content:center; cursor:pointer; -webkit-backdrop-filter: blur(8px) saturate(140%); backdrop-filter: blur(8px) saturate(140%);}
+    #emojiPop{position:absolute; bottom:56px; right:8px; z-index:10; display:none; grid-template-columns:repeat(8, 1fr); gap:6px; padding:8px; background:linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.06)); -webkit-backdrop-filter: blur(12px) saturate(160%); backdrop-filter: blur(12px) saturate(160%); border:1px solid rgba(255,255,255,.22); border-radius:12px;}
+    #emojiPop.open{ display:grid }
+    #emojiPop button{width:32px;height:32px;border-radius:8px;border:1px solid rgba(255,255,255,.25); background:rgba(0,0,0,.25); color:#fff; font-size:18px; cursor:pointer}
     .modal{ position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; align-items:center; justify-content:center; z-index:30 }
     .modal[open]{ display:flex }
-    .card{
-      width:min(92vw,480px); background:var(--glass);
-      -webkit-backdrop-filter: blur(16px) saturate(160%);
-      backdrop-filter: blur(16px) saturate(160%);
-      border:1px solid var(--border); border-radius:16px; padding:18px; color:#fff;
-      display:flex; flex-direction:column; gap:12px
-    }
+    .card{width:min(92vw,520px); background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06)); -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%); border:1px solid var(--border); border-radius:16px; padding:18px; color:#fff; display:flex; flex-direction:column; gap:12px}
     .card h2{margin:0;font-size:18px}
     .field{display:flex;flex-direction:column;gap:6px}
-    .field input, .field select{
-      border-radius:12px;border:1px solid rgba(255,255,255,.25);
-      background:rgba(0,0,0,.35);color:#fff;padding:10px;font-size:16px; direction:rtl; text-align:right
-    }
+    .field input, .field select{border-radius:12px;border:1px solid rgba(255,255,255,.25); background:rgba(0,0,0,.35);color:#fff;padding:10px;font-size:16px; direction:rtl; text-align:right; font-family:inherit;}
     .row70{display:grid; grid-template-columns:70% 30%; gap:8px; align-items:stretch}
-    .btn{border:none;border-radius:12px;background:#22c55e;color:#0b1220;padding:10px 14px;font-weight:700;cursor:pointer;font-size:16px}
-    .btn.secondary{background:#334155;color:#e5e7eb}
-    .btn.danger{background:#ef4444; color:#fff}
+    .btn{border:none;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer;font-size:16px}
+    .btn.glass{border:1px solid var(--border);background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05)); color:#fff}
+    .btn.glass.danger{border-color:rgba(255,0,0,.35); background:linear-gradient(180deg, rgba(239,68,68,.25), rgba(239,68,68,.15)); color:#fff}
     .btn.full{width:100%}
     .hint{font-size:12px;opacity:.9}
-    /* Hide main until gate is passed */
     main.gated{visibility:hidden}
   </style>
 </head>
 <body>
   <main class="gated">
-    <div id="board" aria-live="polite">
-      <div class="push"></div>
-    </div>
+    <section id="roomsView">
+      <div class="bar">
+        <button id="addRoomBtn" class="btn btn-glass">➕ ایجاد چت جدید</button>
+      </div>
+      <div id="roomsList"></div>
+    </section>
 
-    <form id="chatForm">
-      <label id="fileBtn" class="icon-btn" title="بارگذاری فایل">📎
-        <input type="file" id="fileInput" accept="*/*;capture=camera,image/*" />
-      </label>
-      <button type="button" id="settingsBtn" class="icon-btn" title="تنظیمات">⚙️</button>
-      <input id="text" placeholder="پیام خود را بنویسید…" autocomplete="off" />
-    </form>
+    <section id="chatView" class="hidden">
+      <div id="board" aria-live="polite">
+        <div class="push"></div>
+      </div>
+
+      <form id="chatForm">
+        <label id="fileBtn" class="icon-btn" title="بارگذاری فایل">📎
+          <input type="file" id="fileInput" accept="*/*;capture=camera,image/*" />
+        </label>
+
+        <div class="input-wrap">
+          <input id="text" placeholder="پیام خود را بنویسید…" autocomplete="off" />
+          <button type="button" id="emojiBtn" class="emoji-btn">😊</button>
+          <div id="emojiPop"></div>
+        </div>
+
+        <button type="submit" id="sendBtn" title="ارسال">⬆️</button>
+      </form>
+    </section>
   </main>
 
-  <!-- Name + passcode Modal (opaque backdrop) -->
   <div id="nameModal" class="modal">
     <div class="card">
-      <h2>ورود به اتاق</h2>
+      <h2>ورود</h2>
       <div class="field">
         <label>نام</label>
         <input id="nameInput" placeholder="مثلاً: علی" />
@@ -141,21 +148,17 @@
       </div>
       <div class="row70">
         <div></div>
-        <button id="saveName" class="btn">ورود</button>
+        <button id="saveName" class="btn glass">ورود</button>
       </div>
     </div>
   </div>
 
-  <!-- Settings Modal -->
   <div id="settingsModal" class="modal">
     <div class="card">
       <h2>تنظیمات</h2>
       <div class="field">
         <label>تغییر نام</label>
-        <div class="row70">
-          <input id="newName" placeholder="نام جدید" />
-          <button id="applyName" class="btn">ذخیره</button>
-        </div>
+        <input id="newName" placeholder="نام جدید" />
       </div>
       <div class="field">
         <label>اندازهٔ فونت پیام‌ها</label>
@@ -166,18 +169,51 @@
             <option value="18px">بزرگ</option>
             <option value="20px">خیلی بزرگ</option>
           </select>
-          <button id="applyFont" class="btn">اعمال</button>
+          <div></div>
         </div>
       </div>
       <div class="field">
-        <label>حذف همه پیام‌ها</label>
+        <label>حذف همه پیام‌های این اتاق</label>
         <div class="row70">
-          <input id="wipePass" placeholder='برای تأیید بنویسید: delete all' />
-          <button id="wipeBtn" class="btn danger">حذف</button>
+          <input id="wipePass" placeholder="برای تایید بنویسید: delete all" />
+          <button id="wipeBtn" class="btn glass danger">حذف</button>
         </div>
         <div id="wipeStatus" class="hint"></div>
       </div>
-      <button id="settingsOK" class="btn full">OK</button>
+      <button id="settingsOK" class="btn glass full">OK</button>
+    </div>
+  </div>
+
+  <div id="createRoomModal" class="modal">
+    <div class="card">
+      <h2>ایجاد اتاق جدید</h2>
+      <div class="field">
+        <label>نام اتاق</label>
+        <input id="roomNameInput" placeholder="مثلاً: دوستان" />
+      </div>
+      <div class="field">
+        <label>پسورد اتاق</label>
+        <input id="roomPassInput" placeholder="مثلاً: 13579" />
+      </div>
+      <div class="row70">
+        <div></div>
+        <button id="createRoomBtn" class="btn glass">ساختن</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="roomPassModal" class="modal">
+    <div class="card">
+      <h2 id="roomPassTitle">ورود به اتاق</h2>
+      <div class="field">
+        <label>پسورد اتاق</label>
+        <input id="roomPassEnter" placeholder="…" />
+      </div>
+      <div class="row70">
+        <div></div>
+        <button id="enterRoomBtn" class="btn glass">ورود</button>
+      </div>
+      <div id="roomPassHint" class="hint"></div>
     </div>
   </div>
 
