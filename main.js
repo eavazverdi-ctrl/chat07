@@ -1,4 +1,4 @@
-// v15: rooms & per-room passwords, emoji, send button, IranSans font, settings changes live, glass buttons
+// v15.1 hardened: try/catch around room listing; same features
 const ENTRY_PASSCODE = "2025";
 const WIPE_PASSWORD = "delete all";
 const MAX_BYTES = 900 * 1024;
@@ -8,18 +8,15 @@ import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc, writeBatch, getDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-// Init
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
 
-// Identity / local settings
 const LS = (k)=> 'v15_'+k;
 const uid = localStorage.getItem(LS('uid')) || (()=>{ const v=Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(LS('uid'), v); return v; })();
 let displayName = localStorage.getItem(LS('name')) || "";
 let fontSize = localStorage.getItem(LS('fsize')) || "16px";
 document.documentElement.style.setProperty('--msg-fs', fontSize);
 
-// Elements
 const mainEl = document.querySelector('main');
 const roomsView = document.getElementById('roomsView');
 const chatView = document.getElementById('chatView');
@@ -59,7 +56,6 @@ const roomPassEnter = document.getElementById('roomPassEnter');
 const enterRoomBtn = document.getElementById('enterRoomBtn');
 const roomPassHint = document.getElementById('roomPassHint');
 
-// Gate
 function openNameModal(){ nameModal.setAttribute('open',''); }
 function closeNameModal(){ nameModal.removeAttribute('open'); }
 function tryEnter(e){
@@ -83,22 +79,26 @@ function startApp(){
   loadRooms();
 }
 
-// Rooms logic
 async function loadRooms(){
-  roomsList.innerHTML = '';
-  const snap = await getDocs(query(collection(db,'rooms'), orderBy('createdAt','asc')));
-  if (snap.empty){
-    const p = document.createElement('div'); p.className='hint'; p.textContent='هیچ اتاقی ساخته نشده است. از دکمهٔ بالا استفاده کنید.';
+  roomsList.innerHTML = "";
+  try{
+    const snap = await getDocs(query(collection(db,'rooms'), orderBy('createdAt','asc')));
+    if (snap.empty){
+      const p = document.createElement('div'); p.className='hint'; p.textContent='هیچ اتاقی ساخته نشده است. از دکمهٔ بالا استفاده کنید.';
+      roomsList.appendChild(p);
+    } else {
+      snap.forEach(d=>{
+        const r = d.data();
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-glass room-btn';
+        btn.innerHTML = '<span>'+ (r.name||d.id) +'</span><span class="room-meta">🔒</span>';
+        btn.addEventListener('click', ()=> askRoomPassword(d.id, r.name||d.id));
+        roomsList.appendChild(btn);
+      });
+    }
+  }catch(err){
+    const p = document.createElement('div'); p.className='hint'; p.textContent = 'مشکل در خواندن اتاق‌ها (Rules/Network).';
     roomsList.appendChild(p);
-  } else {
-    snap.forEach(d=>{
-      const r = d.data();
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-glass room-btn';
-      btn.innerHTML = `<span>${r.name||d.id}</span><span class="room-meta">🔒</span>`;
-      btn.addEventListener('click', ()=> askRoomPassword(d.id, r.name||d.id));
-      roomsList.appendChild(btn);
-    });
   }
 }
 
@@ -125,7 +125,7 @@ createRoomBtn.addEventListener('click', async (e)=>{
 let pendingRoomId=null, pendingRoomName=null;
 function askRoomPassword(id, name){
   pendingRoomId=id; pendingRoomName=name;
-  roomPassTitle.textContent = `ورود به اتاق: ${name}`;
+  roomPassTitle.textContent = 'ورود به اتاق: ' + name;
   roomPassHint.textContent = '';
   roomPassEnter.value = '';
   roomPassModal.setAttribute('open','');
@@ -150,42 +150,26 @@ async function enterRoom(e){
   }
 }
 
-// Chat logic
-let currentRoomId=null, currentRoomName=null;
-let pollTimer=null;
-let rendered = new Set();
-let msgsCol=null;
+let currentRoomId=null, pollTimer=null, rendered=new Set(), msgsCol=null;
 
-function clearBoard(){
-  board.innerHTML = '<div class="push"></div>';
-  rendered = new Set();
-}
+const board = document.getElementById('board');
+function clearBoard(){ board.innerHTML = '<div class="push"></div>'; rendered = new Set(); }
+function showRooms(){ chatView.classList.add('hidden'); roomsView.classList.remove('hidden'); stopPolling(); }
+function showChat(){ roomsView.classList.add('hidden'); chatView.classList.remove('hidden'); }
+function stopPolling(){ if (pollTimer) { clearInterval(pollTimer); pollTimer=null; } }
 
-function showRooms(){
-  chatView.classList.add('hidden');
-  roomsView.classList.remove('hidden');
-  stopPolling();
-}
-function showChat(){
-  roomsView.classList.add('hidden');
-  chatView.classList.remove('hidden');
-}
-
-function stopPolling(){
-  if (pollTimer) { clearInterval(pollTimer); pollTimer=null; }
-}
 async function startRoom(roomId, roomName){
-  currentRoomId = roomId; currentRoomName = roomName;
+  currentRoomId = roomId;
   clearBoard();
   showChat();
   msgsCol = collection(db, 'rooms', roomId, 'messages');
-  await poll(); // initial
+  await poll();
   setTimeout(()=> scrollToBottom(), 50);
   pollTimer = setInterval(poll, 3000);
 }
 
 function hashHue(s){ let h=0; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))%360; return h; }
-function pad(n){ return n<10 ? '0'+n:''+n; }
+function pad(n){ return n<10 ? '0'+n : ''+n; }
 function fmt(ts){ const d=new Date(ts); return pad(d.getHours())+':'+pad(d.getMinutes()); }
 function getTs(m){ if (m.ts) return m.ts; if (m.t&&m.t.seconds!=null) return m.t.seconds*1000+Math.floor((m.t.nanoseconds||0)/1e6); return Date.now(); }
 function scrollToBottom(){ board.scrollTop = board.scrollHeight; }
@@ -194,7 +178,6 @@ let userPinnedToBottom = true;
 function isNearBottom(){ return (board.scrollHeight - board.scrollTop - board.clientHeight) < 24; }
 board.addEventListener('scroll', ()=>{ userPinnedToBottom = isNearBottom(); });
 
-// Prevent page moving on touch except within board or modals
 document.addEventListener('touchmove', (e)=>{
   if (!e.target.closest('#board') && !e.target.closest('.modal[open]')) e.preventDefault();
 }, {passive:false});
@@ -203,10 +186,10 @@ function addTile({you, who, el, ts}){
   const tile = document.createElement('div'); tile.className = 'tile' + (you? ' you' : '');
   if (!you){
     const hue = hashHue(who||"");
-    tile.style.background = `hsla(${hue},70%,40%,0.22)`;
-    tile.style.borderColor = `hsla(${hue},70%,55%,0.35)`;
+    tile.style.background = 'hsla('+hue+',70%,40%,0.22)';
+    tile.style.borderColor = 'hsla('+hue+',70%,55%,0.35)';
   }
-  const w = document.createElement('div'); w.className='who'; w.textContent = who || "ناشناس";
+  const w = document.createElement('div'); w.className='who'; w.textContent = who || 'ناشناس';
   const meta = document.createElement('div'); meta.className='meta'; meta.textContent = fmt(ts||Date.now());
   tile.appendChild(w); tile.appendChild(el); tile.appendChild(meta);
   board.appendChild(tile);
@@ -215,22 +198,22 @@ function addTile({you, who, el, ts}){
 function renderText(m, forceScroll=false){
   if (rendered.has(m.cid)) return; rendered.add(m.cid);
   const el = document.createElement('div'); el.className='txt'; el.textContent = m.text;
-  addTile({you: m.uid===uid, who: m.name || "ناشناس", el, ts: getTs(m)});
+  addTile({you: m.uid===uid, who: m.name || 'ناشناس', el, ts: getTs(m)});
   if (forceScroll || userPinnedToBottom) scrollToBottom();
 }
 function renderImage(m, forceScroll=false){
   if (rendered.has(m.cid)) return; rendered.add(m.cid);
   const el = document.createElement('div');
-  const img = document.createElement('img'); img.src = m.dataUrl; img.className = 'thumb'; img.alt = m.name || 'image';
-  const link = document.createElement('a'); link.href = m.dataUrl; link.textContent = 'دانلود تصویر'; link.className='filelink'; link.download = m.name || 'image.jpg';
+  const img = document.createElement('img'); img.src = m.dataUrl; img.className='thumb'; img.alt = m.name || 'image';
+  const link = document.createElement('a'); link.href = m.dataUrl; link.textContent = 'دانلود تصویر'; link.className='filelink'; link.download = (m.name||'image.jpg');
   el.appendChild(img); el.appendChild(link);
-  addTile({you: m.uid===uid, who: m.name || "ناشناس", el, ts: getTs(m)});
+  addTile({you: m.uid===uid, who: m.name || 'ناشناس', el, ts: getTs(m)});
   if (forceScroll || userPinnedToBottom) scrollToBottom();
 }
 function renderBlob(m, forceScroll=false){
   if (rendered.has(m.cid)) return; rendered.add(m.cid);
-  const el = document.createElement('a'); el.href = m.dataUrl; el.textContent = '📄 '+(m.name||'file'); el.className='filelink'; el.download = m.name || 'file';
-  addTile({you: m.uid===uid, who: m.name || "ناشناس", el, ts: getTs(m)});
+  const el = document.createElement('a'); el.href = m.dataUrl; el.textContent = '📄 '+(m.name||'file'); el.className='filelink'; el.download = (m.name||'file');
+  addTile({you: m.uid===uid, who: m.name || 'ناشناس', el, ts: getTs(m)});
   if (forceScroll || userPinnedToBottom) scrollToBottom();
 }
 
@@ -248,7 +231,6 @@ async function poll(){
   }catch(e){ /* ignore */ }
 }
 
-// Submit on enter or send button
 form.addEventListener('submit', sendMessage);
 sendBtn.addEventListener('click', sendMessage);
 async function sendMessage(e){
@@ -265,8 +247,8 @@ async function sendMessage(e){
   }catch(e){ /* ignore */ }
 }
 
-// Emoji
-const EMOJIS = ['🙂','😂','😍','😎','👍','🙏','🔥','🎉',❤️','🌟','😉','🤔','😭','😅','👌','👏','💯','🍀','🫶','🙌','🤩','😴','😇','🤗','🤨','😐','🤝'];
+const EMOJIS = ['🙂','😂','😍','😎','👍','🙏','🔥','🎉','❤️','🌟','😉','🤔','😭','😅','👌','👏','💯','🍀','🫶','🙌','🤩','😴','😇','🤗','🤨','😐','🤝'];
+const emojiPop = document.getElementById('emojiPop');
 function buildEmojiPop(){
   emojiPop.innerHTML = '';
   EMOJIS.forEach(ch=>{
@@ -277,7 +259,7 @@ function buildEmojiPop(){
   });
 }
 buildEmojiPop();
-emojiBtn.addEventListener('click', ()=>{
+document.getElementById('emojiBtn').addEventListener('click', ()=>{
   emojiPop.classList.toggle('open');
 });
 document.addEventListener('click', (e)=>{
@@ -294,13 +276,19 @@ function insertAtCursor(el, text){
   el.setSelectionRange(pos, pos);
 }
 
-// Files inline
-const b64Bytes = (dataUrl)=>{
+function b64Bytes(dataUrl){
   const b64 = (dataUrl.split(',')[1]||'').replace(/\s+/g,'');
   const pad = (b64.endsWith('==')?2:(b64.endsWith('=')?1:0));
   return Math.floor(b64.length*3/4) - pad;
-};
-const readAsDataURL = (file)=> new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); });
+}
+function readAsDataURL(file){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onload=()=>res(fr.result);
+    fr.onerror=rej;
+    fr.readAsDataURL(file);
+  });
+}
 async function drawToCanvas(img, width){
   const scale = width / img.naturalWidth;
   const w = Math.max(1, Math.round(width));
@@ -341,8 +329,8 @@ fileInput.addEventListener('change', async ()=>{
   const safeName = (file.name || 'file').replace(/[^\w\.\-]+/g,'_');
   const ts = Date.now();
 
-  const temp = document.createElement('div'); temp.className='txt'; temp.textContent = `در حال آماده‌سازی فایل — ${safeName}`;
-  addTile({you:true, who: displayName || "من", el: temp, ts});
+  const temp = document.createElement('div'); temp.className='txt'; temp.textContent = 'در حال آماده‌سازی فایل — ' + safeName;
+  addTile({you:true, who: displayName || 'من', el: temp, ts});
   scrollToBottom();
 
   try{
@@ -366,7 +354,6 @@ fileInput.addEventListener('change', async ()=>{
   }
 });
 
-// Settings
 settingsBtn.addEventListener('click', ()=>{
   settingsModal.setAttribute('open','');
   newName.value = displayName || "";
@@ -374,7 +361,6 @@ settingsBtn.addEventListener('click', ()=>{
   setTimeout(()=> newName && newName.focus(), 0);
 });
 settingsOK.addEventListener('click', ()=>{
-  // save name on OK; font size already live
   const v = (newName.value||'').trim();
   if (v && v !== displayName){
     displayName = v;
@@ -383,14 +369,12 @@ settingsOK.addEventListener('click', ()=>{
   settingsModal.removeAttribute('open');
 });
 
-// live font size
 fontSizeSel.addEventListener('change', ()=>{
   fontSize = fontSizeSel.value || '16px';
   document.documentElement.style.setProperty('--msg-fs', fontSize);
   localStorage.setItem(LS('fsize'), fontSize);
 });
 
-// wipe only current room
 wipeBtn.addEventListener('click', async (e)=>{
   e.preventDefault();
   const pw = (wipePass.value||'').trim();
@@ -407,7 +391,6 @@ wipeBtn.addEventListener('click', async (e)=>{
       if (count === 0) break;
       await batch.commit();
     }
-    // clear UI
     clearBoard();
     wipeStatus.textContent='همه پیام‌های این اتاق حذف شد.';
   }catch(e){

@@ -6,7 +6,7 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
-  <title> </title>
+  <title></title>
   <style>
     @font-face{
       font-family:"IRANSans";
@@ -24,11 +24,7 @@
     }
     *{box-sizing:border-box}
     html,body{height:100%}
-    html, body {
-      overflow: hidden;
-      overscroll-behavior: none;
-      -webkit-overflow-scrolling: auto;
-    }
+    html, body { overflow: hidden; overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
     body{
       margin:0;font-family:"IRANSans","Vazirmatn",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);
       display:flex;flex-direction:column;height:100%;
@@ -40,11 +36,7 @@
       touch-action: none;
     }
     .hidden{display:none !important}
-    main{
-      flex:1;display:flex;flex-direction:column;max-width:900px;margin:0 auto;width:100%;
-      min-height:0;padding:12px 16px;gap:10px; touch-action: none;
-    }
-    /* --- Rooms View --- */
+    main{flex:1;display:flex;flex-direction:column;max-width:900px;margin:0 auto;width:100%;min-height:0;padding:12px 16px;gap:10px; touch-action: none;}
     #roomsView{display:flex;flex-direction:column;gap:10px}
     .bar{display:flex;gap:8px}
     .btn-glass{
@@ -55,12 +47,8 @@
       color:#fff; border-radius:14px; padding:10px 14px; cursor:pointer; font-weight:700;
     }
     #addRoomBtn{align-self:flex-start}
-    .room-btn{
-      width:100%; text-align:right; display:flex; align-items:center; justify-content:space-between;
-      padding:14px 16px; font-size:16px
-    }
+    .room-btn{width:100%; text-align:right; display:flex; align-items:center; justify-content:space-between; padding:14px 16px; font-size:16px}
     .room-meta{font-size:12px; opacity:.8}
-    /* --- Chat View --- */
     #chatView{display:flex;flex-direction:column;gap:10px}
     #board{
       flex:1;overflow:auto;overflow-x:hidden;min-height:0;
@@ -68,8 +56,7 @@
       background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
       backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
       padding:12px;display:flex;flex-direction:column;gap:10px;
-      overscroll-behavior: contain;
-      touch-action: pan-y;
+      overscroll-behavior: contain; touch-action: pan-y;
     }
     #board .push{flex:1 0 auto}
     .tile{
@@ -87,88 +74,39 @@
     .meta{font-size:10px;opacity:.8;margin-top:2px;text-align:left;direction:ltr}
     .filelink{color:#93c5fd;text-decoration:none}
     .thumb{max-width:100%;height:auto;border-radius:12px;border:1px solid rgba(255,255,255,.15)}
-    /* Controls grid: [upload][input-with-emoji][send] */
     form#chatForm{
-      direction:ltr;
-      display:grid; grid-template-columns: auto 1fr auto; gap:8px; align-items:stretch;
-      padding:6px 8px; border-radius:16px;
-      border:1px solid var(--border);
+      direction:ltr; display:grid; grid-template-columns: auto 1fr auto; gap:8px; align-items:stretch;
+      padding:6px 8px; border-radius:16px; border:1px solid var(--border);
       background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-      -webkit-backdrop-filter: blur(8px) saturate(140%);
-      backdrop-filter: blur(8px) saturate(140%);
+      -webkit-backdrop-filter: blur(8px) saturate(140%); backdrop-filter: blur(8px) saturate(140%);
       touch-action: manipulation;
     }
-    .icon-btn{
-      display:flex;align-items:center;justify-content:center;
-      height:100%; min-height:44px; width:48px;
-      border-radius:12px; cursor:pointer; font-size:20px; line-height:1;
-      background:rgba(0,0,0,.35); color:#e5e7eb; border:1px solid rgba(255,255,255,.25);
-      user-select:none
-    }
+    .icon-btn{display:flex;align-items:center;justify-content:center;height:100%; min-height:44px; width:48px;border-radius:12px; cursor:pointer; font-size:20px; line-height:1; background:rgba(0,0,0,.35); color:#e5e7eb; border:1px solid rgba(255,255,255,.25); user-select:none}
     input[type=file]{display:none}
     .input-wrap{position:relative; display:flex}
-    #text{
-      flex:1 1 auto; min-width:0;border-radius:12px;border:1px solid rgba(255,255,255,.25);
-      background:rgba(0,0,0,.35);color:#fff;padding:8px 44px 8px 12px;
-      direction:rtl;text-align:right; font-family:inherit; font-size:16px;
-    }
-    .emoji-btn{
-      position:absolute; right:8px; top:50%; transform:translateY(-50%);
-      width:28px;height:28px;border-radius:8px; font-size:18px; line-height:1;
-      display:flex;align-items:center;justify-content:center; cursor:pointer;
-      background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.25);
-    }
-    /* round blue send */
-    #sendBtn{
-      width:48px; height:48px; border-radius:9999px;
-      background:linear-gradient(180deg, rgba(59,130,246,.7), rgba(37,99,235,.65));
-      border:1px solid rgba(147,197,253,.6); color:#fff; font-size:20px;
-      display:flex; align-items:center; justify-content:center; cursor:pointer;
-      -webkit-backdrop-filter: blur(8px) saturate(140%); backdrop-filter: blur(8px) saturate(140%);
-    }
-    /* Emoji popover */
-    #emojiPop{
-      position:absolute; bottom:56px; right:8px; z-index:10;
-      display:none; grid-template-columns:repeat(8, 1fr); gap:6px; padding:8px;
-      background:linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.06));
-      -webkit-backdrop-filter: blur(12px) saturate(160%); backdrop-filter: blur(12px) saturate(160%);
-      border:1px solid rgba(255,255,255,.22); border-radius:12px;
-    }
+    #text{flex:1 1 auto; min-width:0;border-radius:12px;border:1px solid rgba(255,255,255,.25); background:rgba(0,0,0,.35);color:#fff;padding:8px 44px 8px 12px; direction:rtl;text-align:right; font-family:inherit; font-size:16px;}
+    .emoji-btn{position:absolute; right:8px; top:50%; transform:translateY(-50%); width:28px;height:28px;border-radius:8px; font-size:18px; line-height:1; display:flex;align-items:center;justify-content:center; cursor:pointer; background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.25);}
+    #sendBtn{width:48px; height:48px; border-radius:9999px; background:linear-gradient(180deg, rgba(59,130,246,.7), rgba(37,99,235,.65)); border:1px solid rgba(147,197,253,.6); color:#fff; font-size:20px; display:flex; align-items:center; justify-content:center; cursor:pointer; -webkit-backdrop-filter: blur(8px) saturate(140%); backdrop-filter: blur(8px) saturate(140%);}
+    #emojiPop{position:absolute; bottom:56px; right:8px; z-index:10; display:none; grid-template-columns:repeat(8, 1fr); gap:6px; padding:8px; background:linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.06)); -webkit-backdrop-filter: blur(12px) saturate(160%); backdrop-filter: blur(12px) saturate(160%); border:1px solid rgba(255,255,255,.22); border-radius:12px;}
     #emojiPop.open{ display:grid }
-    #emojiPop button{
-      width:32px;height:32px;border-radius:8px;border:1px solid rgba(255,255,255,.25);
-      background:rgba(0,0,0,.25); color:#fff; font-size:18px; cursor:pointer
-    }
-    /* Modals (glass & opaque backdrop) */
+    #emojiPop button{width:32px;height:32px;border-radius:8px;border:1px solid rgba(255,255,255,.25); background:rgba(0,0,0,.25); color:#fff; font-size:18px; cursor:pointer}
     .modal{ position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; align-items:center; justify-content:center; z-index:30 }
     .modal[open]{ display:flex }
-    .card{
-      width:min(92vw,520px); background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06));
-      -webkit-backdrop-filter: blur(16px) saturate(160%);
-      backdrop-filter: blur(16px) saturate(160%);
-      border:1px solid var(--border); border-radius:16px; padding:18px; color:#fff;
-      display:flex; flex-direction:column; gap:12px
-    }
+    .card{width:min(92vw,520px); background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06)); -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%); border:1px solid var(--border); border-radius:16px; padding:18px; color:#fff; display:flex; flex-direction:column; gap:12px}
     .card h2{margin:0;font-size:18px}
     .field{display:flex;flex-direction:column;gap:6px}
-    .field input, .field select{
-      border-radius:12px;border:1px solid rgba(255,255,255,.25);
-      background:rgba(0,0,0,.35);color:#fff;padding:10px;font-size:16px; direction:rtl; text-align:right;
-      font-family:inherit;
-    }
+    .field input, .field select{border-radius:12px;border:1px solid rgba(255,255,255,.25); background:rgba(0,0,0,.35);color:#fff;padding:10px;font-size:16px; direction:rtl; text-align:right; font-family:inherit;}
     .row70{display:grid; grid-template-columns:70% 30%; gap:8px; align-items:stretch}
     .btn{border:none;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer;font-size:16px}
     .btn.glass{border:1px solid var(--border);background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05)); color:#fff}
     .btn.glass.danger{border-color:rgba(255,0,0,.35); background:linear-gradient(180deg, rgba(239,68,68,.25), rgba(239,68,68,.15)); color:#fff}
     .btn.full{width:100%}
     .hint{font-size:12px;opacity:.9}
-    /* Gate */
     main.gated{visibility:hidden}
   </style>
 </head>
 <body>
   <main class="gated">
-    <!-- Rooms View -->
     <section id="roomsView">
       <div class="bar">
         <button id="addRoomBtn" class="btn btn-glass">➕ ایجاد چت جدید</button>
@@ -176,7 +114,6 @@
       <div id="roomsList"></div>
     </section>
 
-    <!-- Chat View -->
     <section id="chatView" class="hidden">
       <div id="board" aria-live="polite">
         <div class="push"></div>
@@ -198,7 +135,6 @@
     </section>
   </main>
 
-  <!-- Gate Modal -->
   <div id="nameModal" class="modal">
     <div class="card">
       <h2>ورود</h2>
@@ -217,7 +153,6 @@
     </div>
   </div>
 
-  <!-- Settings Modal -->
   <div id="settingsModal" class="modal">
     <div class="card">
       <h2>تنظیمات</h2>
@@ -240,7 +175,7 @@
       <div class="field">
         <label>حذف همه پیام‌های این اتاق</label>
         <div class="row70">
-          <input id="wipePass" placeholder='برای تأیید بنویسید: delete all' />
+          <input id="wipePass" placeholder="برای تایید بنویسید: delete all" />
           <button id="wipeBtn" class="btn glass danger">حذف</button>
         </div>
         <div id="wipeStatus" class="hint"></div>
@@ -249,7 +184,6 @@
     </div>
   </div>
 
-  <!-- Create Room Modal -->
   <div id="createRoomModal" class="modal">
     <div class="card">
       <h2>ایجاد اتاق جدید</h2>
@@ -268,7 +202,6 @@
     </div>
   </div>
 
-  <!-- Room Password Modal -->
   <div id="roomPassModal" class="modal">
     <div class="card">
       <h2 id="roomPassTitle">ورود به اتاق</h2>
