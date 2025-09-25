@@ -1,29 +1,28 @@
-// v15.2 CSP-friendly (Firestore Lite) + label 'for' + same features
-const ENTRY_PASSCODE = "2025";
+// v16: Start with rooms view; per-room gate (name + pass) once; divider; cache passes; CSP-friendly (firestore-lite)
 const WIPE_PASSWORD = "delete all";
 const MAX_BYTES = 900 * 1024;
 let START_MAX_W = 2560, START_QUALITY = 0.85, MIN_QUALITY = 0.15, MIN_WIDTH = 64;
 
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc, writeBatch, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-lite.js";
+import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc, writeBatch, getDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-lite.js";
 
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
 
-const LS = (k)=> 'v15_'+k;
+const LS = (k)=> 'v16_'+k;
 const uid = localStorage.getItem(LS('uid')) || (()=>{ const v=Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(LS('uid'), v); return v; })();
 let displayName = localStorage.getItem(LS('name')) || "";
 let fontSize = localStorage.getItem(LS('fsize')) || "16px";
 document.documentElement.style.setProperty('--msg-fs', fontSize);
 
-const mainEl = document.querySelector('main');
+// Elements
 const roomsView = document.getElementById('roomsView');
-const chatView = document.getElementById('chatView');
 const roomsList = document.getElementById('roomsList');
-const roomsCache = new Map();
+const roomsDivider = document.getElementById('roomsDivider');
 const addRoomBtn = document.getElementById('addRoomBtn');
 
+const chatView = document.getElementById('chatView');
 const board = document.getElementById('board');
 const form = document.getElementById('chatForm');
 const input = document.getElementById('text');
@@ -32,6 +31,15 @@ const sendBtn = document.getElementById('sendBtn');
 const emojiBtn = document.getElementById('emojiBtn');
 const emojiPop = document.getElementById('emojiPop');
 
+// Gate modal
+const roomGateModal = document.getElementById('roomGateModal');
+const gateTitle = document.getElementById('gateTitle');
+const gateName = document.getElementById('gateName');
+const gatePass = document.getElementById('gatePass');
+const gateEnter = document.getElementById('gateEnter');
+const gateHint = document.getElementById('gateHint');
+
+// Settings elements
 const settingsModal = document.getElementById('settingsModal');
 const newName = document.getElementById('newName');
 const fontSizeSel = document.getElementById('fontSizeSel');
@@ -40,60 +48,26 @@ const wipeBtn = document.getElementById('wipeBtn');
 const wipeStatus = document.getElementById('wipeStatus');
 const settingsOK = document.getElementById('settingsOK');
 
-const nameModal = document.getElementById('nameModal');
-const nameInput = document.getElementById('nameInput');
-const passInput = document.getElementById('passInput');
-const saveName = document.getElementById('saveName');
-
-const createRoomModal = document.getElementById('createRoomModal');
-const roomNameInput = document.getElementById('roomNameInput');
-const roomPassInput = document.getElementById('roomPassInput');
-const createRoomBtn = document.getElementById('createRoomBtn');
-
-const roomPassModal = document.getElementById('roomPassModal');
-const roomPassTitle = document.getElementById('roomPassTitle');
-const roomPassEnter = document.getElementById('roomPassEnter');
-const enterRoomBtn = document.getElementById('enterRoomBtn');
-const roomPassHint = document.getElementById('roomPassHint');
-
-function openNameModal(){ nameModal.setAttribute('open',''); }
-function closeNameModal(){ nameModal.removeAttribute('open'); }
-function tryEnter(e){
-  if (e) e.preventDefault();
-  const n = (nameInput.value||'').trim();
-  const p = (passInput.value||'').trim();
-  if (!n) { nameInput.focus(); return; }
-  if (p !== ENTRY_PASSCODE) { passInput.value=""; passInput.placeholder="اشتباه است"; passInput.focus(); return; }
-  displayName = n; localStorage.setItem(LS('name'), displayName);
-  closeNameModal();
-  startApp();
-}
-saveName.addEventListener('click', tryEnter);
-nameInput.addEventListener('keydown', e=>{ if (e.key==='Enter') tryEnter(e); });
-passInput.addEventListener('keydown', e=>{ if (e.key==='Enter') tryEnter(e); });
-
-if (!displayName) openNameModal(); else startApp();
-
-function startApp(){
-  mainEl.classList.remove('gated');
-  loadRooms();
-}
-
+// ---------------- Rooms ----------------
+const roomsCache = new Map();
 async function loadRooms(){
   roomsList.innerHTML = "";
+  roomsDivider.classList.add('hidden');
   try{
     const snap = await getDocs(query(collection(db,'rooms'), orderBy('createdAt','asc')));
     if (snap.empty){
-      const p = document.createElement('div'); p.className='hint'; p.textContent='هیچ اتاقی ساخته نشده است. از دکمهٔ بالا استفاده کنید.';
-      roomsList.appendChild(p);
-    } else {
+      // فقط دکمه ایجاد اتاق می‌ماند
+      const hint = document.createElement('div'); hint.className='hint'; hint.textContent='هنوز هیچ اتاقی ساخته نشده است.';
+      roomsList.appendChild(hint);
+    }else{
+      roomsDivider.classList.remove('hidden');
       snap.forEach(d=>{
         const r = d.data();
         roomsCache.set(d.id, r);
         const btn = document.createElement('button');
-        btn.className = 'btn btn-glass room-btn';
+        btn.className = 'room-btn';
         btn.innerHTML = '<span>'+ (r.name||d.id) +'</span><span class="room-meta">🔒</span>';
-        btn.addEventListener('click', ()=> askRoomPassword(d.id, r.name||d.id));
+        btn.addEventListener('click', ()=> openRoomGate(d.id, r.name||d.id));
         roomsList.appendChild(btn);
       });
     }
@@ -102,78 +76,94 @@ async function loadRooms(){
     roomsList.appendChild(p);
   }
 }
+loadRooms();
 
-addRoomBtn.addEventListener('click', ()=>{
-  createRoomModal.setAttribute('open','');
-  setTimeout(()=> roomNameInput.focus(), 0);
-});
-
-createRoomBtn.addEventListener('click', async (e)=>{
-  e.preventDefault();
-  const name = (roomNameInput.value||'').trim();
-  const pass = (roomPassInput.value||'').trim();
-  if (!name || !pass) return;
+// create room
+addRoomBtn.addEventListener('click', async ()=>{
+  // ساده: با prompt می‌گیریم (برای سرعت). اگر خواستی همان مودال نسخه‌های قبل را برگردانم.
+  const name = prompt('نام اتاق؟');
+  if (!name) return;
+  const pass = prompt('پسورد اتاق؟');
+  if (!pass) return;
   const slug = name.toLowerCase().replace(/[^\w]+/g,'-').replace(/(^-|-$)/g,'');
   const rand = Math.random().toString(36).slice(2,6);
   const id = (slug || 'room') + '-' + rand;
-  await setDoc(doc(db,'rooms',id), { name, pass, createdAt: serverTimestamp() });
-  createRoomModal.removeAttribute('open');
-  roomNameInput.value=''; roomPassInput.value='';
-  await loadRooms();
-  askRoomPassword(id, name);
+  try{
+    await setDoc(doc(db,'rooms',id), { name, pass, createdAt: serverTimestamp() });
+    await loadRooms();
+    openRoomGate(id, name); // بلافاصله نشان بده
+  }catch(e){
+    alert('ساخت اتاق با خطا مواجه شد (Rules/Network).');
+  }
 });
 
+// gate per room
 let pendingRoomId=null, pendingRoomName=null;
-function askRoomPassword(id, name){
-  pendingRoomId=id; pendingRoomName=name;
-  roomPassTitle.textContent = 'ورود به اتاق: ' + name;
-  roomPassHint.textContent = '';
-  roomPassEnter.value = '';
-  roomPassModal.setAttribute('open','');
-  setTimeout(()=> roomPassEnter.focus(), 0);
+function openRoomGate(id, name){
+  // اگر قبلاً این کاربر وارد شده، مستقیم برو داخل
+  if (localStorage.getItem(LS('access:'+id)) === 'ok'){
+    startRoom(id, name);
+    return;
+  }
+  pendingRoomId = id; pendingRoomName = name;
+  gateTitle.textContent = 'ورود به اتاق: ' + name;
+  gateHint.textContent = '';
+  gatePass.value = '';
+  if (!displayName) { gateName.value = ''; } else { gateName.value = displayName; }
+  roomGateModal.setAttribute('open','');
+  setTimeout(()=> (displayName? gatePass : gateName).focus(), 0);
 }
-enterRoomBtn.addEventListener('click', enterRoom);
-roomPassEnter.addEventListener('keydown', e=>{ if (e.key==='Enter') enterRoom(e); });
+gateEnter.addEventListener('click', enterRoomWithPass);
+gateName.addEventListener('keydown', e=>{ if (e.key==='Enter') enterRoomWithPass(e); });
+gatePass.addEventListener('keydown', e=>{ if (e.key==='Enter') enterRoomWithPass(e); });
 
-async function enterRoom(e){
+async function enterRoomWithPass(e){
   if (e) e.preventDefault();
-  const passTry = (roomPassEnter.value||'').trim();
-  // اول با کشِ لیست اتاق‌ها چک می‌کنیم
+  const n = (gateName.value||'').trim();
+  const p = (gatePass.value||'').trim();
+  if (!n){ gateName.focus(); return; }
+  // اگر قبلاً وارد شده بود، پ را نادیده بگیر
   const cached = roomsCache.get(pendingRoomId);
   if (cached){
-    if ((cached.pass||'') !== passTry){ roomPassHint.textContent='پسورد اشتباه است.'; return; }
-    roomPassModal.removeAttribute('open');
+    if ((cached.pass||'') !== p && localStorage.getItem(LS('access:'+pendingRoomId))!=='ok'){
+      gateHint.textContent = 'پسورد اشتباه است.'; return;
+    }
+    displayName = n; localStorage.setItem(LS('name'), displayName);
+    localStorage.setItem(LS('access:'+pendingRoomId), 'ok');
+    roomGateModal.removeAttribute('open');
     startRoom(pendingRoomId, pendingRoomName);
     return;
   }
-  // در غیر این‌صورت، تلاش به getDoc (سازگاری)
+  // fallback به getDoc در صورت نبود کش
   try{
     const ref = doc(db, 'rooms', pendingRoomId);
     const snap = await getDoc(ref);
-    if (!snap.exists()){ roomPassHint.textContent='اتاق یافت نشد.'; return; }
+    if (!snap.exists()){ gateHint.textContent='اتاق یافت نشد.'; return; }
     const r = snap.data();
-    if ((r.pass||'') !== passTry){ roomPassHint.textContent='پسورد اشتباه است.'; return; }
-    roomPassModal.removeAttribute('open');
+    if ((r.pass||'') !== p){ gateHint.textContent='پسورد اشتباه است.'; return; }
+    displayName = n; localStorage.setItem(LS('name'), displayName);
+    localStorage.setItem(LS('access:'+pendingRoomId), 'ok');
+    roomGateModal.removeAttribute('open');
     startRoom(pendingRoomId, pendingRoomName);
   }catch(err){
-    roomPassHint.textContent='خطای شبکه/دسترسی.';
+    gateHint.textContent='خطای شبکه/دسترسی.';
   }
 }
 
-
-let currentRoomId=null, pollTimer=null, rendered=new Set(), msgsCol=null;
+// ---------------- Chat ----------------
+let pollTimer=null, rendered=new Set(), msgsCol=null;
 
 function clearBoard(){ board.innerHTML = '<div class="push"></div>'; rendered = new Set(); }
-function showChat(){ document.getElementById('roomsView').classList.add('hidden'); document.getElementById('chatView').classList.remove('hidden'); }
-function stopPolling(){ if (pollTimer) { clearInterval(pollTimer); pollTimer=null; } }
+function showChat(){ roomsView.classList.add('hidden'); chatView.classList.remove('hidden'); }
+function showRooms(){ chatView.classList.add('hidden'); roomsView.classList.remove('hidden'); }
 
-async function startRoom(roomId, roomName){
-  currentRoomId = roomId;
+async function startRoom(roomId, name){
   clearBoard();
   showChat();
   msgsCol = collection(db, 'rooms', roomId, 'messages');
   await poll();
   setTimeout(()=> scrollToBottom(), 50);
+  if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(poll, 3000);
 }
 
@@ -240,6 +230,7 @@ async function poll(){
   }catch(e){ /* ignore */ }
 }
 
+// Submit
 form.addEventListener('submit', sendMessage);
 sendBtn.addEventListener('click', sendMessage);
 async function sendMessage(e){
@@ -256,23 +247,19 @@ async function sendMessage(e){
   }catch(e){ /* ignore */ }
 }
 
+// Emoji
 const EMOJIS = ['🙂','😂','😍','😎','👍','🙏','🔥','🎉','❤️','🌟','😉','🤔','😭','😅','👌','👏','💯','🍀','🫶','🙌','🤩','😴','😇','🤗','🤨','😐','🤝'];
 function buildEmojiPop(){
   emojiPop.innerHTML = '';
   EMOJIS.forEach(ch=>{
-    const b = document.createElement('button');
-    b.type='button'; b.textContent = ch;
+    const b = document.createElement('button'); b.type='button'; b.textContent = ch;
     b.addEventListener('click', ()=> insertAtCursor(input, ch));
     emojiPop.appendChild(b);
   });
 }
 buildEmojiPop();
-emojiBtn.addEventListener('click', ()=>{
-  emojiPop.classList.toggle('open');
-});
-document.addEventListener('click', (e)=>{
-  if (!e.target.closest('#emojiPop') && !e.target.closest('#emojiBtn')) emojiPop.classList.remove('open');
-});
+emojiBtn.addEventListener('click', ()=>{ emojiPop.classList.toggle('open'); });
+document.addEventListener('click', (e)=>{ if (!e.target.closest('#emojiPop') && !e.target.closest('#emojiBtn')) emojiPop.classList.remove('open'); });
 function insertAtCursor(el, text){
   el.focus();
   const start = el.selectionStart ?? el.value.length;
@@ -284,18 +271,14 @@ function insertAtCursor(el, text){
   el.setSelectionRange(pos, pos);
 }
 
+// Files inline
 function b64Bytes(dataUrl){
   const b64 = (dataUrl.split(',')[1]||'').replace(/\s+/g,'');
   const pad = (b64.endsWith('==')?2:(b64.endsWith('=')?1:0));
   return Math.floor(b64.length*3/4) - pad;
 }
 function readAsDataURL(file){
-  return new Promise((res,rej)=>{
-    const fr=new FileReader();
-    fr.onload=()=>res(fr.result);
-    fr.onerror=rej;
-    fr.readAsDataURL(file);
-  });
+  return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); });
 }
 async function drawToCanvas(img, width){
   const scale = width / img.naturalWidth;
@@ -361,6 +344,7 @@ fileInput.addEventListener('change', async ()=>{
   }
 });
 
+// Settings
 settingsOK.addEventListener('click', ()=>{
   const v = (newName.value||'').trim();
   if (v && v !== displayName){
@@ -369,13 +353,11 @@ settingsOK.addEventListener('click', ()=>{
   }
   settingsModal.removeAttribute('open');
 });
-
 fontSizeSel.addEventListener('change', ()=>{
   fontSize = fontSizeSel.value || '16px';
   document.documentElement.style.setProperty('--msg-fs', fontSize);
   localStorage.setItem(LS('fsize'), fontSize);
 });
-
 wipeBtn.addEventListener('click', async (e)=>{
   e.preventDefault();
   const pw = (wipePass.value||'').trim();
