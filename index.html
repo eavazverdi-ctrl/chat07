@@ -20,14 +20,8 @@
     worker-src 'self' blob:;
   ">
   <style>
-    @font-face{
-      font-family:'IRANSans';
-      src:url('fonts/IRANSans.woff2') format('woff2');
-      font-weight:100 900; font-style:normal; font-display:swap;
-    }
-    :root{ --bg1:#0f172a; --bg2:#1e293b; --text:#e5e7eb; --border:rgba(255,255,255,.22);
-           --glass:rgba(255,255,255,.10); --glass-you:rgba(37,99,235,.22);
-           --danger:#ef4444; --msg-fs:16px; }
+    @font-face{ font-family:'IRANSans'; src:url('fonts/IRANSans.woff2') format('woff2'); font-weight:100 900; font-style:normal; font-display:swap; }
+    :root{ --bg1:#0f172a; --bg2:#1e293b; --text:#e5e7eb; --border:rgba(255,255,255,.22); --glass:rgba(255,255,255,.10); --glass-you:rgba(37,99,235,.22); --msg-fs:16px; }
     *{box-sizing:border-box}
     html,body{height:100%}
     html, body { overflow: hidden; overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
@@ -61,11 +55,11 @@
     .filelink{color:#93c5fd;text-decoration:none}
     .thumb{max-width:100%;height:auto;border-radius:12px;border:1px solid rgba(255,255,255,.15)}
 
-    /* Input bar: only text box; icons inside */
-    form#chatForm{direction:ltr; display:block; align-items:stretch; padding:0; width:100%;}
+    /* Input bar: icons inside text */
+    form#chatForm{direction:ltr; display:block; width:100%;}
     .input-wrap{position:relative; display:flex; align-items:center; border-radius:16px; border:1px solid var(--border); background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)); padding:6px; }
-    #text{flex:1 1 auto; min-width:0;border-radius:12px;border:1px solid rgba(255,255,255,.25); background:rgba(0,0,0,.35);color:#fff;padding:10px 96px 10px 12px; direction:rtl;text-align:right; font-family:inherit; font-size:16px; width:100%;}
-    .mini-icon{position:absolute; top:50%; transform:translateY(-50%); width:34px; height:34px; border-radius:10px; border:1px solid rgba(255,255,255,.25); background:rgba(255,255,255,.10); color:#fff; font-size:18px; display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none}
+    #text{flex:1 1 auto; min-width:0;border-radius:12px;border:1px solid rgba(255,255,255,.25); background:rgba(0,0,0,.35);color:#fff;padding:10px 120px 10px 12px; direction:rtl;text-align:right; font-family:inherit; font-size:16px; width:100%;}
+    .mini-icon{position:absolute; top:50%; transform:translateY(-50%); width:32px; height:32px; border-radius:10px; border:1px solid rgba(255,255,255,.25); background:rgba(255,255,255,.10); color:#fff; font-size:16px; display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none}
     #emojiBtn{right:8px;}
     #fileBtn{right:48px;}
     #settingsBtn{right:88px;}
@@ -87,20 +81,23 @@
     .btn.glass.danger{border-color:rgba(255,0,0,.35); background:linear-gradient(180deg, rgba(239,68,68,.25), rgba(239,68,68,.15)); color:#fff}
     .btn.full{width:100%}
     .hint{font-size:12px;opacity:.9}
+
+    /* error toast */
+    #errToast{position:fixed;left:12px;bottom:12px;z-index:100;padding:10px 12px;border-radius:12px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.4);color:#fff;max-width:90vw;font-size:12px;display:none}
   </style>
 </head>
 <body>
   <main>
     <section id="roomsView">
       <div class="bar">
-        <button id="addRoomBtn" class="btn btn-glass">➕ ایجاد چت جدید</button>
+        <button id="addRoomBtn" class="btn btn-glass" type="button">➕ ایجاد چت جدید</button>
       </div>
       <div id="roomsDivider" class="divider hidden"></div>
       <div id="roomsList"></div>
     </section>
 
     <section id="chatView" class="hidden">
-      <button id="backBtn" class="btn btn-glass">⬅️ بازگشت به صفحه اصلی</button>
+      <button id="backBtn" class="btn btn-glass" type="button">⬅️ بازگشت به صفحه اصلی</button>
       <div id="board" aria-live="polite">
         <div class="push"></div>
       </div>
@@ -131,8 +128,8 @@
         <input id="gatePass" placeholder="…" />
       </div>
       <div class="rowEq">
-        <button id="gateEnter" class="btn glass">ورود</button>
-        <button id="gateCancel" class="btn glass">انصراف</button>
+        <button id="gateEnter" class="btn glass" type="button">ورود</button>
+        <button id="gateCancel" class="btn glass" type="button">انصراف</button>
       </div>
       <div id="gateHint" class="hint"></div>
     </div>
@@ -151,12 +148,38 @@
         <input id="roomPassInput" placeholder="مثلاً: 1234" />
       </div>
       <div class="rowEq">
-        <button id="createRoomBtn" class="btn glass">ساختن</button>
-        <button id="createRoomCancel" class="btn glass">انصراف</button>
+        <button id="createRoomBtn" class="btn glass" type="button">ساختن</button>
+        <button id="createRoomCancel" class="btn glass" type="button">انصراف</button>
       </div>
       <div id="createHint" class="hint"></div>
     </div>
   </div>
+
+  <!-- Settings modal -->
+  <div id="settingsModal" class="modal" role="dialog" aria-modal="true">
+    <div class="card">
+      <h2>تنظیمات</h2>
+      <div class="field">
+        <label for="newName">تغییر نام</label>
+        <input id="newName" placeholder="نام جدید" />
+      </div>
+      <div class="field">
+        <label for="fontSizeSel">اندازهٔ فونت پیام‌ها</label>
+        <div class="rowEq">
+          <select id="fontSizeSel">
+            <option value="14px">کوچک</option>
+            <option value="16px" selected>عادی</option>
+            <option value="18px">بزرگ</option>
+            <option value="20px">خیلی بزرگ</option>
+          </select>
+          <div></div>
+        </div>
+      </div>
+      <button id="settingsOK" class="btn glass full" type="button">OK</button>
+    </div>
+  </div>
+
+  <div id="errToast"></div>
 
   <script type="module" src="main.js"></script>
 </body>

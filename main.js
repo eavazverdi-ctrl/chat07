@@ -1,4 +1,4 @@
-// v19: rooms via collectionGroup('messages') meta docs; local persist; setDoc by cid; remembered access; UI tweaks.
+// v20: robust rooms sync (rooms + _meta), list polling, fixed button types, send/upload handlers, error toast.
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import { getFirestore, collection, collectionGroup, addDoc, setDoc, serverTimestamp, getDocs, orderBy, query, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-lite.js";
@@ -6,11 +6,16 @@ import { getFirestore, collection, collectionGroup, addDoc, setDoc, serverTimest
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
 
-const LS = (k)=> 'v19_'+k;
+const LS = (k)=> 'v20_'+k;
 const uid = localStorage.getItem(LS('uid')) || (()=>{ const v=Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(LS('uid'), v); return v; })();
 let displayName = localStorage.getItem(LS('name')) || "";
 let fontSize = localStorage.getItem(LS('fsize')) || "16px";
 document.documentElement.style.setProperty('--msg-fs', fontSize);
+
+const errToast = document.getElementById('errToast');
+function toast(msg){ errToast.textContent = msg; errToast.style.display='block'; setTimeout(()=> errToast.style.display='none', 4000); }
+window.addEventListener('error', e=> toast('JS: '+(e.message||'خطای ناشناخته')));
+window.addEventListener('unhandledrejection', e=> toast('Promise: '+(e.reason && e.reason.message ? e.reason.message : 'خطای ناشناخته')));
 
 // Elements
 const roomsListEl = document.getElementById('roomsList');
@@ -42,7 +47,6 @@ const gateEnter = document.getElementById('gateEnter');
 const gateCancel = document.getElementById('gateCancel');
 const gateHint = document.getElementById('gateHint');
 
-// Settings modal
 const settingsModal = document.getElementById('settingsModal');
 const newName = document.getElementById('newName');
 const fontSizeSel = document.getElementById('fontSizeSel');
@@ -62,6 +66,7 @@ function renderRooms(list){
   list.forEach(r=>{
     const btn = document.createElement('button');
     btn.className='room-btn';
+    btn.type='button';
     btn.innerHTML=`<span>${r.name}</span><span class="room-meta">🔒</span>`;
     btn.addEventListener('click', ()=> openGate(r));
     roomsListEl.appendChild(btn);
@@ -72,31 +77,36 @@ renderRooms(rooms);
 function saveRoomsLocal(arr){ localStorage.setItem(LS('rooms'), JSON.stringify(arr)); }
 function loadRoomsLocal(){ try{ return JSON.parse(localStorage.getItem(LS('rooms'))||'[]'); }catch{ return []; } }
 
-async function refreshRoomsFromMeta(){
+async function refreshRoomsFromServer(){
+  let updated = false;
+  // try rooms collection
   try{
-    // needs rules: allow read on messages subcollections
-    const cg = await getDocs(query(collectionGroup(db, 'messages'), orderBy('t','asc')));
+    const snap = await getDocs(query(collection(db,'rooms'), orderBy('createdAt','asc')));
+    const serverRooms = [];
+    snap.forEach(d=>{ const r=d.data(); serverRooms.push({id:d.id,name:r.name||d.id,pass:r.pass||''}); });
+    if (serverRooms.length){ updated = true; }
+    mergeRooms(serverRooms);
+  }catch(e){ /* ignore */ }
+  // try collectionGroup on messages meta
+  try{
+    const cg = await getDocs(query(collectionGroup(db,'messages'), orderBy('t','asc')));
     const meta = [];
-    cg.forEach(d=>{
-      const m = d.data();
-      if (m && m.type==='meta'){
-        const roomId = d.ref.parent.parent.id;
-        meta.push({ id: roomId, name: m.name||roomId, pass: m.pass||'' });
-      }
-    });
-    // merge
-    const byId = new Map();
-    rooms.forEach(r=> byId.set(r.id, r));
-    meta.forEach(r=> byId.set(r.id, r));
-    rooms = Array.from(byId.values());
-    roomsById = new Map(rooms.map(r=>[r.id,r]));
-    saveRoomsLocal(rooms);
-    renderRooms(rooms);
-  }catch(e){
-    // ignore; fallback to local list
-  }
+    cg.forEach(d=>{ const m=d.data(); if (m && m.type==='meta'){ const roomId = d.ref.parent.parent.id; meta.push({id:roomId,name:m.name||roomId,pass:m.pass||''}); } });
+    if (meta.length){ updated = true; }
+    mergeRooms(meta);
+  }catch(e){ /* ignore */ }
+  if (updated){ renderRooms(rooms); saveRoomsLocal(rooms); }
 }
-refreshRoomsFromMeta();
+function mergeRooms(list){
+  const byId = new Map(rooms.map(r=>[r.id,r]));
+  list.forEach(r=> byId.set(r.id, r));
+  rooms = Array.from(byId.values());
+  roomsById = new Map(rooms.map(r=>[r.id,r]));
+}
+
+// poll room list every 7s
+setInterval(refreshRoomsFromServer, 7000);
+refreshRoomsFromServer();
 
 // Create room flow
 addRoomBtn.addEventListener('click', ()=>{
@@ -115,14 +125,9 @@ createRoomBtn.addEventListener('click', async ()=>{
   rooms.push(r); roomsById.set(id, r); saveRoomsLocal(rooms); renderRooms(rooms);
   createRoomModal.removeAttribute('open');
   // server writes (best-effort)
-  try{
-    await setDoc(doc(db,'rooms',id), { name, pass, createdAt: serverTimestamp() });
-  }catch(e){}
-  try{
-    // meta doc in messages for collectionGroup discovery
-    await setDoc(doc(db,'rooms',id,'messages','_meta'), { type:'meta', name, pass, t: serverTimestamp() });
-  }catch(e){}
-  refreshRoomsFromMeta();
+  try{ await setDoc(doc(db,'rooms',id), { name, pass, createdAt: serverTimestamp() }); }catch(e){ toast('اتاق محلی ساخته شد (سرور در دسترس نیست)'); }
+  try{ await setDoc(doc(db,'rooms',id,'messages','_meta'), { type:'meta', name, pass, t: serverTimestamp() }); }catch(e){}
+  refreshRoomsFromServer();
 });
 
 // Gate modal
@@ -148,24 +153,11 @@ async function ensureRoomPass(room){
   if (room.pass) return room.pass;
   try{
     const s = await getDoc(doc(db,'rooms', room.id));
-    if (s.exists()){
-      const data = s.data(); room.pass = data.pass || '';
-      roomsById.set(room.id, room);
-      const idx = rooms.findIndex(x=>x.id===room.id);
-      if (idx>=0){ rooms[idx] = room; saveRoomsLocal(rooms); }
-      return room.pass;
-    }
+    if (s.exists()){ const data=s.data(); room.pass=data.pass||''; roomsById.set(room.id, room); saveRoomsLocal(rooms); return room.pass; }
   }catch(e){}
-  // last chance: try meta document
   try{
     const s = await getDoc(doc(db,'rooms', room.id, 'messages', '_meta'));
-    if (s.exists()){
-      const data = s.data(); room.pass = data.pass || '';
-      roomsById.set(room.id, room);
-      const idx = rooms.findIndex(x=>x.id===room.id);
-      if (idx>=0){ rooms[idx] = room; saveRoomsLocal(rooms); }
-      return room.pass;
-    }
+    if (s.exists()){ const data=s.data(); room.pass=data.pass||''; roomsById.set(room.id, room); saveRoomsLocal(rooms); return room.pass; }
   }catch(e){}
   return '';
 }
@@ -184,13 +176,28 @@ async function enterRoom(e){
 }
 
 // ---------- Chat ----------
-settingsBtn.addEventListener('click', ()=>{ newName.value=displayName||''; fontSizeSel.value=fontSize; settingsModal.setAttribute('open',''); });
-settingsOK.addEventListener('click', ()=>{ const v=(newName.value||'').trim(); if(v && v!==displayName){ displayName=v; localStorage.setItem(LS('name'), v); } fontSize=fontSizeSel.value||'16px'; document.documentElement.style.setProperty('--msg-fs', fontSize); localStorage.setItem(LS('fsize'), fontSize); settingsModal.removeAttribute('open'); });
+const settingsModal = document.getElementById('settingsModal');
+const newName = document.getElementById('newName');
+const fontSizeSel = document.getElementById('fontSizeSel');
+const settingsOK = document.getElementById('settingsOK');
+
+settingsBtn.addEventListener('click', ()=>{
+  newName.value = displayName || '';
+  fontSizeSel.value = fontSize;
+  settingsModal.setAttribute('open','');
+});
+settingsOK.addEventListener('click', ()=>{
+  const v = (newName.value||'').trim();
+  if (v && v !== displayName){ displayName = v; localStorage.setItem(LS('name'), v); }
+  fontSize = fontSizeSel.value || '16px';
+  document.documentElement.style.setProperty('--msg-fs', fontSize);
+  localStorage.setItem(LS('fsize'), fontSize);
+  settingsModal.removeAttribute('open');
+});
 
 function showChat(){ roomsView.classList.add('hidden'); chatView.classList.remove('hidden'); }
 function showRooms(){ chatView.classList.add('hidden'); roomsView.classList.remove('hidden'); }
-backBtn.addEventListener('click', ()=>{ showRooms(); if (pollTimer) clearInterval(pollTimer); currentRoomId=null; });
-
+backBtn.addEventListener('click', (e)=>{ e.preventDefault(); showRooms(); if (pollTimer) clearInterval(pollTimer); currentRoomId=null; });
 function clearBoard(){ board.innerHTML = '<div class=\"push\"></div>'; rendered = new Set(); }
 function scrollToBottom(){ board.scrollTop = board.scrollHeight; }
 let userPinnedToBottom = true;
@@ -203,8 +210,7 @@ function fmt(ts){ const d=new Date(ts); return pad(d.getHours())+':'+pad(d.getMi
 function getTs(m){ if (m.ts) return m.ts; if (m.t&&m.t.seconds!=null) return m.t.seconds*1000+Math.floor((m.t.nanoseconds||0)/1e6); return Date.now(); }
 function hashHue(s){ let h=0; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))%360; return h; }
 function addTile({you, who, el, ts}){
-  const tile = document.createElement('div'); tile.className='tile'+(you?' you':'');
-  if (!you){ const hue = hashHue(who||''); tile.style.background = `hsla(${hue},70%,40%,0.22)`; tile.style.borderColor = `hsla(${hue},70%,55%,0.35)`; }
+  const tile = document.createElement('div'); tile.className='tile'+(you?' you':''); if (!you){ const hue=hashHue(who||''); tile.style.background=`hsla(${hue},70%,40%,0.22)`; tile.style.borderColor=`hsla(${hue},70%,55%,0.35)`; }
   const w = document.createElement('div'); w.className='who'; w.textContent = who||'ناشناس';
   const meta = document.createElement('div'); meta.className='meta'; meta.textContent = fmt(ts||Date.now());
   tile.appendChild(w); tile.appendChild(el); tile.appendChild(meta);
@@ -248,13 +254,8 @@ async function startRoom(room){
   clearBoard();
   // render local first
   const local = loadLocalMsgs(room.id);
-  local.forEach(m=>{
-    if (m.type==='txt') renderText(m);
-    if (m.type==='img') renderImage(m);
-    if (m.type==='blob') renderBlob(m);
-  });
+  local.forEach(m=>{ if (m.type==='txt') renderText(m); if (m.type==='img') renderImage(m); if (m.type==='blob') renderBlob(m); });
   setTimeout(scrollToBottom, 10);
-
   msgsCol = collection(db, 'rooms', room.id, 'messages');
   await poll(); // server overlay
   setTimeout(scrollToBottom, 50);
@@ -274,32 +275,26 @@ async function poll(){
       if (m.type==='img') renderImage(m);
       if (m.type==='blob') renderBlob(m);
     });
-    // persist a trimmed local mirror (max 500)
     const trimmed = srv.slice(-500);
     saveLocalMsgs(currentRoomId, trimmed);
     if (userPinnedToBottom) scrollToBottom();
-  }catch(e){
-    // no server; keep local
-  }
+  }catch(e){ /* ignore */ }
 }
 
-// Send text via setDoc (cid idempotent) + local persist + unsent queue
+// Submit (Enter only)
 form.addEventListener('submit', async (e)=>{
   e.preventDefault();
+  e.stopPropagation();
   const text = (input.value||'').trim();
   if (!text || !currentRoomId) return;
   const cid = Date.now() + '-' + Math.random().toString(36).slice(2);
   const ts = Date.now();
   const m = {type:'txt', text, uid, name: displayName, cid, ts, t: serverTimestamp()};
   renderText(m, true);
-  // local mirror
   const loc = loadLocalMsgs(currentRoomId); loc.push(m); saveLocalMsgs(currentRoomId, loc.slice(-500));
   input.value='';
-  try{
-    await setDoc(doc(db,'rooms',currentRoomId,'messages',cid), m);
-  }catch(e){
-    const q = loadUnsent(currentRoomId); q.push(m); saveUnsent(currentRoomId, q.slice(-200));
-  }
+  try{ await setDoc(doc(db,'rooms',currentRoomId,'messages',cid), m); }
+  catch(e){ const q = loadUnsent(currentRoomId); q.push(m); saveUnsent(currentRoomId, q.slice(-200)); toast('ارسال در صف آفلاین قرار گرفت'); }
 });
 
 // Unsent flush
@@ -332,11 +327,11 @@ function insertAtCursor(el, text){
   const p=s+text.length; el.setSelectionRange(p,p);
 }
 
-// Files inline with compression; setDoc + local/unsent
+// Files inline with compression
 function b64Bytes(dataUrl){ const b64=(dataUrl.split(',')[1]||'').replace(/\s+/g,''); const pad=(b64.endsWith('==')?2:(b64.endsWith('=')?1:0)); return Math.floor(b64.length*3/4)-pad; }
 function readAsDataURL(file){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); }); }
 async function drawToCanvas(img, width){ const scale=width/img.naturalWidth; const w=Math.max(1,Math.round(width)); const h=Math.max(1,Math.round(img.naturalHeight*scale)); const cv=document.createElement('canvas'); cv.width=w; cv.height=h; const ctx=cv.getContext('2d'); ctx.drawImage(img,0,0,w,h); return cv; }
-let START_MAX_W=2560, START_QUALITY=.85, MIN_QUALITY=.15, MIN_WIDTH=64, MAX_BYTES=900*1024;
+let START_MAX_W=2560, START_QUALITY=.85, MIN_QUALITY=.15, MIN_WIDTH=64, MAX_BYTES=1200*1024;
 async function compressImageSmart(file){
   const dataUrl = await readAsDataURL(file);
   const img = new Image(); img.decoding='async'; await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=dataUrl; });
@@ -363,17 +358,16 @@ fileInput.addEventListener('change', async ()=>{
       if (b64Bytes(dataUrl)>MAX_BYTES){ temp.textContent='تصویر بسیار بزرگ است.'; return; }
       temp.parentElement.remove(); const m={type:'img', name, dataUrl, uid, name: displayName, cid, ts, t: serverTimestamp()};
       renderImage(m, true);
-      // local
       const loc=loadLocalMsgs(currentRoomId); loc.push(m); saveLocalMsgs(currentRoomId, loc.slice(-500));
       try{ await setDoc(doc(db,'rooms',currentRoomId,'messages',cid), m); }
-      catch(e){ const q=loadUnsent(currentRoomId); q.push(m); saveUnsent(currentRoomId, q.slice(-200)); }
+      catch(e){ const q=loadUnsent(currentRoomId); q.push(m); saveUnsent(currentRoomId, q.slice(-200)); toast('ارسال فایل در صف آفلاین قرار گرفت'); }
     } else {
-      const raw=await readAsDataURL(file); if (b64Bytes(raw)>MAX_BYTES){ temp.textContent='حجم فایل زیاد است (~900KB).'; return; }
+      const raw=await readAsDataURL(file); if (b64Bytes(raw)>MAX_BYTES){ temp.textContent='حجم فایل زیاد است (~1.2MB).'; return; }
       temp.parentElement.remove(); const m={type:'blob', name, dataUrl: raw, uid, name: displayName, cid, ts, t: serverTimestamp()};
       renderBlob(m, true);
       const loc=loadLocalMsgs(currentRoomId); loc.push(m); saveLocalMsgs(currentRoomId, loc.slice(-500));
       try{ await setDoc(doc(db,'rooms',currentRoomId,'messages',cid), m); }
-      catch(e){ const q=loadUnsent(currentRoomId); q.push(m); saveUnsent(currentRoomId, q.slice(-200)); }
+      catch(e){ const q=loadUnsent(currentRoomId); q.push(m); saveUnsent(currentRoomId, q.slice(-200)); toast('ارسال فایل در صف آفلاین قرار گرفت'); }
     }
     fileInput.value='';
   }catch(e){ temp.textContent='خطا در پردازش فایل.'; }
