@@ -1,12 +1,12 @@
-// v20.2: 5 fixed rooms + local persistence on send/upload + unsent queue + safe poll not wiping cache.
+// v20.3: persist rooms state locally + collectionGroup fallback; never downgrade rooms; messages persist across refresh; offline queue.
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-import { getFirestore, collection, doc, getDoc, setDoc, getDocs, orderBy, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-lite.js";
+import { getFirestore, collection, collectionGroup, doc, getDoc, setDoc, getDocs, orderBy, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-lite.js";
 
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
 
-const LS = (k)=> 'v20_2_'+k;
+const LS = (k)=> 'v20_3_'+k;
 const uid = localStorage.getItem(LS('uid')) || (()=>{ const v=Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(LS('uid'), v); return v; })();
 let displayName = localStorage.getItem(LS('name')) || "";
 let fontSize = localStorage.getItem(LS('fsize')) || "16px";
@@ -60,14 +60,20 @@ const newName = document.getElementById('newName');
 const fontSizeSel = document.getElementById('fontSizeSel');
 const settingsOK = document.getElementById('settingsOK');
 
-// State
-let rooms = PRESET.map(x=> ({...x, name:x.defaultName, initialized:false}));
-let currentRoom = null, pollTimer=null, rendered=new Set();
-let currentRoomId = null;
+// ---------- Rooms state (local + server fallback) ----------
+function loadRoomsState(){
+  try{ return JSON.parse(localStorage.getItem(LS('roomsState'))||'{}'); }catch{ return {}; }
+}
+function saveRoomsState(state){
+  localStorage.setItem(LS('roomsState'), JSON.stringify(state));
+}
+let roomsState = loadRoomsState(); // {roomId:{name, initialized}}
 
-// UI helpers
-function showRooms(){ chatView.classList.add('hidden'); roomsView.classList.remove('hidden'); }
-function showChat(){ roomsView.classList.add('hidden'); chatView.classList.remove('hidden'); }
+let rooms = PRESET.map(x=>{
+  const st = roomsState[x.id] || {};
+  return { id:x.id, name: st.name || x.defaultName, initialized: !!st.initialized };
+});
+
 function renderRooms(){
   roomsListEl.innerHTML='';
   rooms.forEach(r=>{
@@ -80,25 +86,40 @@ function renderRooms(){
 }
 renderRooms();
 
-// fetch room states from server
-async function fetchRoomStates(){
-  for (const r of rooms){
-    try{
+async function refreshRoomsFromServer(){
+  // Try rooms collection
+  try{
+    for (const r of rooms){
       const d = await getDoc(doc(db,'rooms', r.id));
       if (d.exists()){
         const data = d.data();
-        r.name = data.name || r.defaultName;
-        r.initialized = !!data.initialized || !!data.pass;
-      } else {
-        r.name = r.defaultName;
-        r.initialized = false;
+        r.name = data.name || r.name;
+        r.initialized = !!data.initialized || !!data.pass || r.initialized;
+        roomsState[r.id] = { name:r.name, initialized:r.initialized };
       }
-    }catch(e){ /* ignore */ }
-  }
+    }
+  }catch(e){ /* ignore */ }
+  // Try collectionGroup meta fallback
+  try{
+    const cg = await getDocs(query(collectionGroup(db,'messages'), orderBy('t','asc')));
+    cg.forEach(d=>{
+      const m = d.data();
+      if (m && m.type==='meta'){
+        const roomId = d.ref.parent.parent.id;
+        const r = rooms.find(x=> x.id===roomId);
+        if (r){
+          r.name = m.name || r.name;
+          r.initialized = r.initialized || true;
+          roomsState[r.id] = { name:r.name, initialized:r.initialized };
+        }
+      }
+    });
+  }catch(e){ /* ignore */ }
+  saveRoomsState(roomsState);
   renderRooms();
 }
-fetchRoomStates();
-setInterval(fetchRoomStates, 8000);
+refreshRoomsFromServer();
+setInterval(refreshRoomsFromServer, 8000);
 
 // Click room
 let pendingRoom=null;
@@ -106,14 +127,14 @@ function onRoomClick(r){
   pendingRoom = r;
   if (r.initialized){
     if (localStorage.getItem(LS('access:'+r.id))==='ok'){ startRoom(r); return; }
-    gateTitle.textContent='ورود به اتاق: '+(r.name||r.defaultName);
+    gateTitle.textContent='ورود به اتاق: '+(r.name);
     gateHint.textContent='';
     gateName.value = displayName || '';
     gatePass.value = '';
     roomGateModal.setAttribute('open','');
     setTimeout(()=> (displayName? gatePass : gateName).focus(), 0);
   } else {
-    claimName.value = r.name || r.defaultName;
+    claimName.value = r.name;
     claimPass.value = DEFAULT_PASS;
     claimHint.textContent='';
     claimModal.setAttribute('open','');
@@ -129,6 +150,8 @@ claimOK.addEventListener('click', async ()=>{
     await setDoc(doc(db,'rooms', pendingRoom.id), { name:nm, pass:ps, initialized:true, createdAt: serverTimestamp() });
     await setDoc(doc(db,'rooms', pendingRoom.id, 'messages', '_meta'), { type:'meta', name:nm, t: serverTimestamp() });
     pendingRoom.name = nm; pendingRoom.initialized = true;
+    roomsState[pendingRoom.id] = { name:nm, initialized:true };
+    saveRoomsState(roomsState);
     localStorage.setItem(LS('access:'+pendingRoom.id), 'ok');
     claimModal.removeAttribute('open');
     startRoom(pendingRoom);
@@ -226,8 +249,10 @@ function loadUnsent(roomId){ try{ return JSON.parse(localStorage.getItem(keyUnse
 function saveUnsent(roomId, list){ localStorage.setItem(keyUnsent(roomId), JSON.stringify(list)); }
 
 // Start room
+let pollTimer=null;
+let currentRoom=null;
 async function startRoom(room){
-  currentRoom = room; currentRoomId = room.id;
+  currentRoom = room;
   showChat();
   clearBoard();
   // local first
