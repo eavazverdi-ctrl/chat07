@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title></title>
 
-  <!-- ✅ CSP سازگار با Firestore Lite و بدون unsafe-eval -->
+  <!-- CSP بدون unsafe-eval -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     script-src 'self' https://www.gstatic.com;
@@ -24,11 +24,9 @@
 
   <style>
     @font-face{
-      font-family:"IRANSans";
-      src:url("fonts/IRANSans.woff2") format("woff2");
-      font-weight: 100 900;
-      font-style: normal;
-      font-display: swap;
+      font-family:'IRANSans';
+      src:url('fonts/IRANSans.woff2') format('woff2');
+      font-weight:100 900; font-style:normal; font-display:swap;
     }
     :root{ --bg1:#0f172a; --bg2:#1e293b; --text:#e5e7eb; --border:rgba(255,255,255,.22);
            --glass:rgba(255,255,255,.10); --glass-you:rgba(37,99,235,.22);
@@ -37,7 +35,7 @@
     html,body{height:100%}
     html, body { overflow: hidden; overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
     body{
-      margin:0; font-family:"IRANSans","Vazirmatn",system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--text);
+      margin:0; font-family:'IRANSans','Vazirmatn',system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--text);
       display:flex;flex-direction:column;height:100%;
       background: radial-gradient(1200px 800px at 80% -10%, #1f2937 0%, transparent 60%),
                   radial-gradient(1000px 700px at -10% 110%, #0ea5e9 0%, transparent 50%),
@@ -45,16 +43,14 @@
       background-attachment: fixed;
       -webkit-text-size-adjust: 100%; touch-action: none;
     }
-    .hidden{display:none !important}
+    .hidden{display:none!important}
     main{flex:1;display:flex;flex-direction:column;max-width:900px;margin:0 auto;width:100%;min-height:0;padding:12px 16px;gap:10px; touch-action: none;}
     .bar{display:flex;gap:8px}
     .btn-glass{border:1px solid var(--border); background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04)); -webkit-backdrop-filter: blur(8px) saturate(140%); backdrop-filter: blur(8px) saturate(140%); color:#fff; border-radius:14px; padding:10px 14px; cursor:pointer; font-weight:700;}
     .divider{height:1px; background:linear-gradient(90deg, rgba(255,255,255,.0), rgba(255,255,255,.25), rgba(255,255,255,.0)); margin:8px 0;}
-    /* Rooms list */
     #roomsView{display:flex;flex-direction:column;gap:10px}
     .room-btn{width:100%; text-align:right; display:flex; align-items:center; justify-content:space-between; padding:14px 16px; font-size:16px; border:1px solid var(--border); border-radius:14px; background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05)); -webkit-backdrop-filter: blur(8px) saturate(140%); backdrop-filter: blur(8px) saturate(140%); color:#fff}
     .room-meta{font-size:12px; opacity:.8}
-    /* Chat */
     #chatView{display:flex;flex-direction:column;gap:10px}
     #board{flex:1;overflow:auto;overflow-x:hidden;min-height:0; border:1px solid var(--border);border-radius:16px; background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02)); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); padding:12px;display:flex;flex-direction:column;gap:10px; overscroll-behavior: contain; touch-action: pan-y;}
     #board .push{flex:1 0 auto}
@@ -65,7 +61,6 @@
     .meta{font-size:10px;opacity:.8;margin-top:2px;text-align:left;direction:ltr}
     .filelink{color:#93c5fd;text-decoration:none}
     .thumb{max-width:100%;height:auto;border-radius:12px;border:1px solid rgba(255,255,255,.15)}
-    /* input bar */
     form#chatForm{direction:ltr; display:grid; grid-template-columns: auto 1fr auto; gap:8px; align-items:stretch; padding:6px 8px; border-radius:16px; border:1px solid var(--border); background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)); -webkit-backdrop-filter: blur(8px) saturate(140%); backdrop-filter: blur(8px) saturate(140%); touch-action: manipulation;}
     .icon-btn{display:flex;align-items:center;justify-content:center;height:100%; min-height:44px; width:48px;border-radius:12px; cursor:pointer; font-size:20px; line-height:1; background:rgba(0,0,0,.35); color:#e5e7eb; border:1px solid rgba(255,255,255,.25); user-select:none}
     input[type=file]{display:none}
@@ -76,7 +71,6 @@
     #emojiPop{position:absolute; bottom:56px; right:8px; z-index:10; display:none; grid-template-columns:repeat(8, 1fr); gap:6px; padding:8px; background:linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.06)); -webkit-backdrop-filter: blur(12px) saturate(160%); backdrop-filter: blur(12px) saturate(160%); border:1px solid rgba(255,255,255,.22); border-radius:12px;}
     #emojiPop.open{ display:grid }
     #emojiPop button{width:32px;height:32px;border-radius:8px;border:1px solid rgba(255,255,255,.25); background:rgba(0,0,0,.25); color:#fff; font-size:18px; cursor:pointer}
-    /* modals */
     .modal{ position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; align-items:center; justify-content:center; z-index:30 }
     .modal[open]{ display:flex }
     .card{width:min(92vw,520px); background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06)); -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%); border:1px solid var(--border); border-radius:16px; padding:18px; color:#fff; display:flex; flex-direction:column; gap:12px}
@@ -93,7 +87,6 @@
 </head>
 <body>
   <main>
-    <!-- Rooms View -->
     <section id="roomsView">
       <div class="bar">
         <button id="addRoomBtn" class="btn btn-glass">➕ ایجاد چت جدید</button>
@@ -102,7 +95,6 @@
       <div id="roomsList"></div>
     </section>
 
-    <!-- Chat View -->
     <section id="chatView" class="hidden">
       <div id="board" aria-live="polite">
         <div class="push"></div>
@@ -124,35 +116,23 @@
     </section>
   </main>
 
-  <!-- Settings Modal (ثابت) -->
-  <div id="settingsModal" class="modal" role="dialog" aria-modal="true">
+  <!-- Gate modal (name + room password) -->
+  <div id="roomGateModal" class="modal" role="dialog" aria-modal="true">
     <div class="card">
-      <h2>تنظیمات</h2>
+      <h2 id="gateTitle">ورود به اتاق</h2>
       <div class="field">
-        <label for="newName">تغییر نام</label>
-        <input id="newName" placeholder="نام جدید" />
+        <label for="gateName">نام</label>
+        <input id="gateName" placeholder="نام شما" />
       </div>
       <div class="field">
-        <label for="fontSizeSel">اندازهٔ فونت پیام‌ها</label>
-        <div class="row70">
-          <select id="fontSizeSel">
-            <option value="14px">کوچک</option>
-            <option value="16px" selected>عادی</option>
-            <option value="18px">بزرگ</option>
-            <option value="20px">خیلی بزرگ</option>
-          </select>
-          <div></div>
-        </div>
+        <label for="gatePass">پسورد اتاق</label>
+        <input id="gatePass" placeholder="…" />
       </div>
-      <div class="field">
-        <label for="wipePass">حذف همه پیام‌های این اتاق</label>
-        <div class="row70">
-          <input id="wipePass" placeholder="برای تایید بنویسید: delete all" />
-          <button id="wipeBtn" class="btn glass danger">حذف</button>
-        </div>
-        <div id="wipeStatus" class="hint"></div>
+      <div class="row70">
+        <div></div>
+        <button id="gateEnter" class="btn glass">ورود</button>
       </div>
-      <button id="settingsOK" class="btn glass full">OK</button>
+      <div id="gateHint" class="hint"></div>
     </div>
   </div>
 
