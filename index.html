@@ -7,7 +7,6 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <title></title>
-
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     script-src 'self' https://www.gstatic.com;
@@ -20,7 +19,6 @@
     frame-ancestors 'self';
     worker-src 'self' blob:;
   ">
-
   <style>
     @font-face{
       font-family:'IRANSans';
@@ -34,7 +32,7 @@
     html,body{height:100%}
     html, body { overflow: hidden; overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
     body{
-      margin:0; font-family:'IRANSans','Vazirmatn',system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--text);
+      margin:0; font-family:'IRANSans','Vazirmatn',system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:#e5e7eb;
       display:flex;flex-direction:column;height:100%;
       background: radial-gradient(1200px 800px at 80% -10%, #1f2937 0%, transparent 60%),
                   radial-gradient(1000px 700px at -10% 110%, #0ea5e9 0%, transparent 50%),
@@ -63,8 +61,8 @@
     .filelink{color:#93c5fd;text-decoration:none}
     .thumb{max-width:100%;height:auto;border-radius:12px;border:1px solid rgba(255,255,255,.15)}
 
-    /* Input bar — ثابت پایین، دو ستون: فایل + متن (اموجی داخل) */
-    form#chatForm{direction:ltr; display:grid; grid-template-columns: auto 1fr; gap:8px; align-items:stretch; padding:6px 8px; border-radius:16px; border:1px solid var(--border); background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)); -webkit-backdrop-filter: blur(8px) saturate(140%); backdrop-filter: blur(8px) saturate(140%); touch-action: manipulation; width:100%;}
+    /* Input bar: file + settings + text (emoji inside) */
+    form#chatForm{direction:ltr; display:grid; grid-template-columns: auto auto 1fr; gap:8px; align-items:stretch; padding:6px 8px; border-radius:16px; border:1px solid var(--border); background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)); -webkit-backdrop-filter: blur(8px) saturate(140%); backdrop-filter: blur(8px) saturate(140%); width:100%;}
     .icon-btn{display:flex;align-items:center;justify-content:center;height:100%; min-height:44px; width:48px;border-radius:12px; cursor:pointer; font-size:20px; line-height:1; background:rgba(0,0,0,.35); color:#e5e7eb; border:1px solid rgba(255,255,255,.25); user-select:none}
     input[type=file]{display:none}
     .input-wrap{position:relative; display:flex}
@@ -75,7 +73,6 @@
     #emojiPop.open{ display:grid }
     #emojiPop button{width:32px;height:32px;border-radius:8px;border:1px solid rgba(255,255,255,.25); background:rgba(0,0,0,.25); color:#fff; font-size:18px; cursor:pointer}
 
-    /* modals */
     .modal{ position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; align-items:center; justify-content:center; z-index:30 }
     .modal[open]{ display:flex }
     .card{width:min(92vw,520px); background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06)); -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%); border:1px solid var(--border); border-radius:16px; padding:18px; color:#fff; display:flex; flex-direction:column; gap:12px}
@@ -108,6 +105,7 @@
       <form id="chatForm" aria-label="فرم ارسال پیام">
         <label id="fileBtn" class="icon-btn" title="بارگذاری فایل" for="fileInput" aria-label="آپلود فایل">📎</label>
         <input type="file" id="fileInput" accept="*/*;capture=camera,image/*" />
+        <button type="button" id="settingsBtn" class="icon-btn" title="تنظیمات" aria-label="تنظیمات">⚙️</button>
         <div class="input-wrap">
           <label for="text" class="hidden">متن پیام</label>
           <input id="text" placeholder="پیام خود را بنویسید…" autocomplete="off" enterkeyhint="send" />
@@ -118,7 +116,7 @@
     </section>
   </main>
 
-  <!-- Gate modal (name + room password) -->
+  <!-- Gate modal -->
   <div id="roomGateModal" class="modal" role="dialog" aria-modal="true">
     <div class="card">
       <h2 id="gateTitle">ورود به اتاق</h2>
@@ -154,6 +152,30 @@
         <button id="createRoomCancel" class="btn glass">انصراف</button>
         <button id="createRoomBtn" class="btn glass">ساختن</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Settings modal -->
+  <div id="settingsModal" class="modal" role="dialog" aria-modal="true">
+    <div class="card">
+      <h2>تنظیمات</h2>
+      <div class="field">
+        <label for="newName">تغییر نام</label>
+        <input id="newName" placeholder="نام جدید" />
+      </div>
+      <div class="field">
+        <label for="fontSizeSel">اندازهٔ فونت پیام‌ها</label>
+        <div class="row70">
+          <select id="fontSizeSel">
+            <option value="14px">کوچک</option>
+            <option value="16px" selected>عادی</option>
+            <option value="18px">بزرگ</option>
+            <option value="20px">خیلی بزرگ</option>
+          </select>
+          <div></div>
+        </div>
+      </div>
+      <button id="settingsOK" class="btn glass full">OK</button>
     </div>
   </div>
 

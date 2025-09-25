@@ -1,19 +1,94 @@
-// v17.1: Modal room creation; stable chat layout; back button; gate label tweaks + cancel; remove send button.
+// v18: Rooms in Firestore (cross-device) + cache; per-room access remembered; Settings button restored.
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-lite.js";
+import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-lite.js";
 
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
 
-const LS = (k)=> 'v17_1_'+k;
+const LS = (k)=> 'v18_'+k;
 const uid = localStorage.getItem(LS('uid')) || (()=>{ const v=Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(LS('uid'), v); return v; })();
 let displayName = localStorage.getItem(LS('name')) || "";
+let fontSize = localStorage.getItem(LS('fsize')) || "16px";
+document.documentElement.style.setProperty('--msg-fs', fontSize);
 
+// Elements
 const roomsListEl = document.getElementById('roomsList');
 const roomsDivider = document.getElementById('roomsDivider');
 const addRoomBtn = document.getElementById('addRoomBtn');
-const rooms = loadRooms(); // local only
+
+const chatView = document.getElementById('chatView');
+const roomsView = document.getElementById('roomsView');
+const backBtn = document.getElementById('backBtn');
+const board = document.getElementById('board');
+const form = document.getElementById('chatForm');
+const input = document.getElementById('text');
+const fileInput = document.getElementById('fileInput');
+const emojiBtn = document.getElementById('emojiBtn');
+const emojiPop = document.getElementById('emojiPop');
+const settingsBtn = document.getElementById('settingsBtn');
+
+// Settings modal
+const settingsModal = document.getElementById('settingsModal');
+const newName = document.getElementById('newName');
+const fontSizeSel = document.getElementById('fontSizeSel');
+const settingsOK = document.getElementById('settingsOK');
+
+settingsBtn.addEventListener('click', ()=> {
+  newName.value = displayName || '';
+  fontSizeSel.value = fontSize;
+  settingsModal.setAttribute('open','');
+});
+settingsOK.addEventListener('click', ()=>{
+  const v = (newName.value||'').trim();
+  if (v && v !== displayName){
+    displayName = v;
+    localStorage.setItem(LS('name'), displayName);
+  }
+  fontSize = fontSizeSel.value || '16px';
+  document.documentElement.style.setProperty('--msg-fs', fontSize);
+  localStorage.setItem(LS('fsize'), fontSize);
+  settingsModal.removeAttribute('open');
+});
+
+// ---------- ROOMS (server + cache) ----------
+function loadRoomsLocal(){ try{ return JSON.parse(localStorage.getItem(LS('rooms'))||'[]'); }catch{ return []; } }
+function saveRoomsLocal(list){ localStorage.setItem(LS('rooms'), JSON.stringify(list)); }
+let rooms = loadRoomsLocal();
+
+function renderRooms(list){
+  roomsListEl.innerHTML='';
+  if (list.length>0) roomsDivider.classList.remove('hidden'); else roomsDivider.classList.add('hidden');
+  list.forEach(r=>{
+    const btn = document.createElement('button');
+    btn.className='room-btn';
+    btn.innerHTML=`<span>${r.name}</span><span class="room-meta">🔒</span>`;
+    btn.addEventListener('click', ()=> openGate(r));
+    roomsListEl.appendChild(btn);
+  });
+}
+renderRooms(rooms);
+
+async function refreshRoomsFromServer(){
+  try{
+    const snap = await getDocs(query(collection(db,'rooms'), orderBy('createdAt','asc')));
+    const serverRooms = [];
+    snap.forEach(d=>{
+      const r = d.data();
+      serverRooms.push({ id: d.id, name: r.name || d.id, pass: r.pass || '' });
+    });
+    // merge unique by id (prefer server)
+    const byId = new Map();
+    rooms.forEach(r=> byId.set(r.id, r));
+    serverRooms.forEach(r=> byId.set(r.id, r));
+    rooms = Array.from(byId.values());
+    saveRoomsLocal(rooms);
+    renderRooms(rooms);
+  }catch(e){
+    // ignore if rules/network block; use local
+  }
+}
+refreshRoomsFromServer();
 
 // Create-room modal
 const createRoomModal = document.getElementById('createRoomModal');
@@ -22,35 +97,28 @@ const roomPassInput = document.getElementById('roomPassInput');
 const createRoomBtn = document.getElementById('createRoomBtn');
 const createRoomCancel = document.getElementById('createRoomCancel');
 
-function loadRooms(){ try{ return JSON.parse(localStorage.getItem(LS('rooms'))||'[]'); }catch{ return []; } }
-function saveRooms(){ localStorage.setItem(LS('rooms'), JSON.stringify(rooms)); }
-
-function refreshRoomsUI(){
-  roomsListEl.innerHTML='';
-  if (rooms.length>0) roomsDivider.classList.remove('hidden'); else roomsDivider.classList.add('hidden');
-  rooms.forEach(r=>{
-    const btn = document.createElement('button');
-    btn.className='room-btn';
-    btn.innerHTML=`<span>${r.name}</span><span class="room-meta">🔒</span>`;
-    btn.addEventListener('click', ()=> openGate(r));
-    roomsListEl.appendChild(btn);
-  });
-}
-refreshRoomsUI();
-
 addRoomBtn.addEventListener('click', ()=>{
   createRoomModal.setAttribute('open','');
   roomNameInput.value=''; roomPassInput.value='';
   setTimeout(()=> roomNameInput.focus(), 0);
 });
 createRoomCancel.addEventListener('click', ()=> createRoomModal.removeAttribute('open'));
-createRoomBtn.addEventListener('click', ()=>{
+createRoomBtn.addEventListener('click', async ()=>{
   const name = (roomNameInput.value||'').trim();
   const pass = (roomPassInput.value||'').trim();
   if (!name || !pass) return;
   const id = (name.toLowerCase().replace(/[^\w]+/g,'-').replace(/(^-|-$)/g,'')||'room') + '-' + Math.random().toString(36).slice(2,6);
-  rooms.push({id, name, pass}); saveRooms(); refreshRoomsUI();
+  // optimistic local
+  const r = { id, name, pass };
+  rooms.push(r); saveRoomsLocal(rooms); renderRooms(rooms);
   createRoomModal.removeAttribute('open');
+  // try server
+  try{
+    await setDoc(doc(db, 'rooms', id), { name, pass, createdAt: serverTimestamp() });
+    refreshRoomsFromServer();
+  }catch(e){
+    // ignore; room remains local on this device
+  }
 });
 
 // Gate modal
@@ -64,6 +132,11 @@ const gateHint = document.getElementById('gateHint');
 let pendingRoom=null;
 
 function openGate(room){
+  // skip if already unlocked on this device
+  if (localStorage.getItem(LS('access:'+room.id))==='ok'){
+    startRoom(room);
+    return;
+  }
   pendingRoom = room;
   gateTitle.textContent = 'ورود به اتاق: ' + (room?.name || '');
   gateHint.textContent='';
@@ -77,30 +150,36 @@ gateEnter.addEventListener('click', enterRoom);
 gateName.addEventListener('keydown', e=>{ if (e.key==='Enter') enterRoom(e); });
 gatePass.addEventListener('keydown', e=>{ if (e.key==='Enter') enterRoom(e); });
 
-function enterRoom(e){
+async function ensureRoomPass(room){
+  if (room.pass) return room.pass;
+  try{
+    const s = await getDoc(doc(db,'rooms', room.id));
+    if (s.exists()){
+      const data = s.data(); room.pass = data.pass || '';
+      // update local cache
+      const i = rooms.findIndex(x=>x.id===room.id);
+      if (i>=0){ rooms[i].pass = room.pass; saveRoomsLocal(rooms); }
+      return room.pass;
+    }
+  }catch(e){}
+  return '';
+}
+
+async function enterRoom(e){
   if (e) e.preventDefault();
   const n = (gateName.value||'').trim();
   const p = (gatePass.value||'').trim();
   if (!n){ gateName.focus(); return; }
-  if (pendingRoom && p !== pendingRoom.pass){
-    gateHint.textContent='پسورد اشتباه است.'; return;
-  }
+  const pass = await ensureRoomPass(pendingRoom);
+  if (!pass){ gateHint.textContent='پسورد اتاق در دسترس نیست.'; return; }
+  if (p !== pass){ gateHint.textContent='پسورد اشتباه است.'; return; }
   displayName = n; localStorage.setItem(LS('name'), displayName);
+  localStorage.setItem(LS('access:'+pendingRoom.id), 'ok');
   roomGateModal.removeAttribute('open');
   startRoom(pendingRoom);
 }
 
-// Chat
-const chatView = document.getElementById('chatView');
-const roomsView = document.getElementById('roomsView');
-const backBtn = document.getElementById('backBtn');
-const board = document.getElementById('board');
-const form = document.getElementById('chatForm');
-const input = document.getElementById('text');
-const fileInput = document.getElementById('fileInput');
-const emojiBtn = document.getElementById('emojiBtn');
-const emojiPop = document.getElementById('emojiPop');
-
+// ---------- CHAT ----------
 let msgsCol=null, pollTimer=null, rendered=new Set();
 function showChat(){ roomsView.classList.add('hidden'); chatView.classList.remove('hidden'); }
 function showRooms(){ chatView.classList.add('hidden'); roomsView.classList.remove('hidden'); }
@@ -168,10 +247,10 @@ async function poll(){
       if (m.type==='blob') renderBlob(m);
     });
     if (userPinnedToBottom) scrollToBottom();
-  }catch(e){ /* ignore in offline/rules */ }
+  }catch(e){ /* ignore */ }
 }
 
-// Submit on Enter (no visible send button)
+// Submit (Enter only)
 form.addEventListener('submit', async (e)=>{
   e.preventDefault();
   const text = (input.value||'').trim();
@@ -183,7 +262,7 @@ form.addEventListener('submit', async (e)=>{
   try{ await addDoc(msgsCol, {type:'txt', text, uid, name: displayName, cid, ts, t: serverTimestamp()}); }catch(_){}
 });
 
-// Emoji (use already-declared elements)
+// Emoji
 const EMOJIS = ['🙂','😂','😍','😎','👍','🙏','🔥','🎉','❤️','🌟','😉','🤔','😭','😅','👌','👏','💯','🍀','🫶','🙌','🤩','😴','😇','🤗','🤨','😐','🤝'];
 function buildEmojiPop(){
   emojiPop.innerHTML='';
@@ -202,7 +281,7 @@ function insertAtCursor(el, text){
   const p=s+text.length; el.setSelectionRange(p,p);
 }
 
-// Files inline (<=900KB after compression)
+// Files inline
 function b64Bytes(dataUrl){ const b64=(dataUrl.split(',')[1]||'').replace(/\s+/g,''); const pad=(b64.endsWith('==')?2:(b64.endsWith('=')?1:0)); return Math.floor(b64.length*3/4)-pad; }
 function readAsDataURL(file){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); }); }
 async function drawToCanvas(img, width){ const scale=width/img.naturalWidth; const w=Math.max(1,Math.round(width)); const h=Math.max(1,Math.round(img.naturalHeight*scale)); const cv=document.createElement('canvas'); cv.width=w; cv.height=h; const ctx=cv.getContext('2d'); ctx.drawImage(img,0,0,w,h); return cv; }
