@@ -1,34 +1,37 @@
-// v17: Local rooms list + per-room gate; uses Firestore only for messages subcollections; no global rooms read/write.
+// v17.1: Modal room creation; stable chat layout; back button; gate label tweaks + cancel; remove send button.
 import { FIREBASE_CONFIG } from "./config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query, writeBatch } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-lite.js";
+import { getFirestore, collection, addDoc, serverTimestamp, getDocs, orderBy, query } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-lite.js";
 
 const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
 
-const LS = (k)=> 'v17_'+k;
+const LS = (k)=> 'v17_1_'+k;
 const uid = localStorage.getItem(LS('uid')) || (()=>{ const v=Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(LS('uid'), v); return v; })();
 let displayName = localStorage.getItem(LS('name')) || "";
-let fontSize = localStorage.getItem('--msg-fs') || "16px";
-document.documentElement.style.setProperty('--msg-fs', fontSize);
 
 const roomsListEl = document.getElementById('roomsList');
 const roomsDivider = document.getElementById('roomsDivider');
 const addRoomBtn = document.getElementById('addRoomBtn');
 const rooms = loadRooms(); // local only
 
-function loadRooms(){
-  try{ return JSON.parse(localStorage.getItem(LS('rooms'))||'[]'); }catch{ return []; }
-}
+// Create-room modal
+const createRoomModal = document.getElementById('createRoomModal');
+const roomNameInput = document.getElementById('roomNameInput');
+const roomPassInput = document.getElementById('roomPassInput');
+const createRoomBtn = document.getElementById('createRoomBtn');
+const createRoomCancel = document.getElementById('createRoomCancel');
+
+function loadRooms(){ try{ return JSON.parse(localStorage.getItem(LS('rooms'))||'[]'); }catch{ return []; } }
 function saveRooms(){ localStorage.setItem(LS('rooms'), JSON.stringify(rooms)); }
 
 function refreshRoomsUI(){
-  roomsListEl.innerHTML = '';
+  roomsListEl.innerHTML='';
   if (rooms.length>0) roomsDivider.classList.remove('hidden'); else roomsDivider.classList.add('hidden');
   rooms.forEach(r=>{
     const btn = document.createElement('button');
     btn.className='room-btn';
-    btn.innerHTML = `<span>${r.name}</span><span class="room-meta">🔒</span>`;
+    btn.innerHTML=`<span>${r.name}</span><span class="room-meta">🔒</span>`;
     btn.addEventListener('click', ()=> openGate(r));
     roomsListEl.appendChild(btn);
   });
@@ -36,14 +39,18 @@ function refreshRoomsUI(){
 refreshRoomsUI();
 
 addRoomBtn.addEventListener('click', ()=>{
-  const name = prompt('نام اتاق؟');
-  if (!name) return;
-  const pass = prompt('پسورد اتاق؟');
-  if (!pass) return;
-  const id = (name.toLowerCase().replace(/[^\w]+/g,'-').replace(/(^-|-$)/g,'') || 'room') + '-' + Math.random().toString(36).slice(2,6);
-  const r = { id, name, pass };
-  rooms.push(r); saveRooms(); refreshRoomsUI();
-  openGate(r);
+  createRoomModal.setAttribute('open','');
+  roomNameInput.value=''; roomPassInput.value='';
+  setTimeout(()=> roomNameInput.focus(), 0);
+});
+createRoomCancel.addEventListener('click', ()=> createRoomModal.removeAttribute('open'));
+createRoomBtn.addEventListener('click', ()=>{
+  const name = (roomNameInput.value||'').trim();
+  const pass = (roomPassInput.value||'').trim();
+  if (!name || !pass) return;
+  const id = (name.toLowerCase().replace(/[^\w]+/g,'-').replace(/(^-|-$)/g,'')||'room') + '-' + Math.random().toString(36).slice(2,6);
+  rooms.push({id, name, pass}); saveRooms(); refreshRoomsUI();
+  createRoomModal.removeAttribute('open');
 });
 
 // Gate modal
@@ -52,6 +59,7 @@ const gateTitle = document.getElementById('gateTitle');
 const gateName = document.getElementById('gateName');
 const gatePass = document.getElementById('gatePass');
 const gateEnter = document.getElementById('gateEnter');
+const gateCancel = document.getElementById('gateCancel');
 const gateHint = document.getElementById('gateHint');
 let pendingRoom=null;
 
@@ -64,6 +72,7 @@ function openGate(room){
   roomGateModal.setAttribute('open','');
   setTimeout(()=> (displayName? gatePass : gateName).focus(), 0);
 }
+gateCancel.addEventListener('click', ()=> roomGateModal.removeAttribute('open'));
 gateEnter.addEventListener('click', enterRoom);
 gateName.addEventListener('keydown', e=>{ if (e.key==='Enter') enterRoom(e); });
 gatePass.addEventListener('keydown', e=>{ if (e.key==='Enter') enterRoom(e); });
@@ -81,26 +90,26 @@ function enterRoom(e){
   startRoom(pendingRoom);
 }
 
-// Chat view
+// Chat
 const chatView = document.getElementById('chatView');
 const roomsView = document.getElementById('roomsView');
+const backBtn = document.getElementById('backBtn');
 const board = document.getElementById('board');
 const form = document.getElementById('chatForm');
 const input = document.getElementById('text');
 const fileInput = document.getElementById('fileInput');
 const emojiBtn = document.getElementById('emojiBtn');
 const emojiPop = document.getElementById('emojiPop');
-const sendBtn = document.getElementById('sendBtn');
 
 let msgsCol=null, pollTimer=null, rendered=new Set();
 function showChat(){ roomsView.classList.add('hidden'); chatView.classList.remove('hidden'); }
 function showRooms(){ chatView.classList.add('hidden'); roomsView.classList.remove('hidden'); }
-function clearBoard(){ board.innerHTML = '<div class="push"></div>'; rendered = new Set(); }
+backBtn.addEventListener('click', ()=>{ showRooms(); if (pollTimer) clearInterval(pollTimer); });
+function clearBoard(){ board.innerHTML = '<div class=\"push\"></div>'; rendered = new Set(); }
 
 async function startRoom(room){
   showChat();
   clearBoard();
-  // subcollection: rooms/<id>/messages  (parent doc لازم نیست وجود داشته باشد)
   msgsCol = collection(db, 'rooms', room.id, 'messages');
   await poll();
   setTimeout(scrollToBottom, 50);
@@ -159,9 +168,10 @@ async function poll(){
       if (m.type==='blob') renderBlob(m);
     });
     if (userPinnedToBottom) scrollToBottom();
-  }catch(e){ /* اگر Rules پیام‌ها هم بسته باشد، اینجا خطا رخ می‌دهد */ }
+  }catch(e){ /* ignore in offline/rules */ }
 }
 
+// Submit on Enter (no visible send button)
 form.addEventListener('submit', async (e)=>{
   e.preventDefault();
   const text = (input.value||'').trim();
@@ -170,12 +180,12 @@ form.addEventListener('submit', async (e)=>{
   const ts = Date.now();
   renderText({text, uid, name: displayName, cid, ts}, true);
   input.value='';
-  try{
-    await addDoc(msgsCol, {type:'txt', text, uid, name: displayName, cid, ts, t: serverTimestamp()});
-  }catch(e){ /* ignore */ }
+  try{ await addDoc(msgsCol, {type:'txt', text, uid, name: displayName, cid, ts, t: serverTimestamp()}); }catch(_){}
 });
 
 // Emoji
+const emojiPop = document.getElementById('emojiPop');
+const emojiBtn = document.getElementById('emojiBtn');
 const EMOJIS = ['🙂','😂','😍','😎','👍','🙏','🔥','🎉','❤️','🌟','😉','🤔','😭','😅','👌','👏','💯','🍀','🫶','🙌','🤩','😴','😇','🤗','🤨','😐','🤝'];
 function buildEmojiPop(){
   emojiPop.innerHTML='';
@@ -186,29 +196,23 @@ function buildEmojiPop(){
   });
 }
 buildEmojiPop();
-emojiBtn.addEventListener('click', ()=>{ emojiPop.classList.toggle('open'); });
+emojiBtn.addEventListener('click', ()=> emojiPop.classList.toggle('open'));
 document.addEventListener('click', (e)=>{ if (!e.target.closest('#emojiPop') && !e.target.closest('#emojiBtn')) emojiPop.classList.remove('open'); });
 function insertAtCursor(el, text){
   el.focus(); const s=el.selectionStart??el.value.length; const e=el.selectionEnd??el.value.length;
   el.value = el.value.slice(0,s) + text + el.value.slice(e);
-  const p = s + text.length; el.setSelectionRange(p,p);
+  const p=s+text.length; el.setSelectionRange(p,p);
 }
 
-// Files inline
-function b64Bytes(dataUrl){
-  const b64=(dataUrl.split(',')[1]||'').replace(/\s+/g,''); const pad=(b64.endsWith('==')?2:(b64.endsWith('=')?1:0));
-  return Math.floor(b64.length*3/4) - pad;
-}
+// Files inline (<=900KB after compression)
+function b64Bytes(dataUrl){ const b64=(dataUrl.split(',')[1]||'').replace(/\s+/g,''); const pad=(b64.endsWith('==')?2:(b64.endsWith('=')?1:0)); return Math.floor(b64.length*3/4)-pad; }
 function readAsDataURL(file){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); }); }
-async function drawToCanvas(img, width){
-  const scale = width / img.naturalWidth; const w=Math.max(1,Math.round(width)); const h=Math.max(1,Math.round(img.naturalHeight*scale));
-  const cv=document.createElement('canvas'); cv.width=w; cv.height=h; const ctx=cv.getContext('2d'); ctx.drawImage(img,0,0,w,h); return cv;
-}
+async function drawToCanvas(img, width){ const scale=width/img.naturalWidth; const w=Math.max(1,Math.round(width)); const h=Math.max(1,Math.round(img.naturalHeight*scale)); const cv=document.createElement('canvas'); cv.width=w; cv.height=h; const ctx=cv.getContext('2d'); ctx.drawImage(img,0,0,w,h); return cv; }
 let START_MAX_W=2560, START_QUALITY=.85, MIN_QUALITY=.15, MIN_WIDTH=64, MAX_BYTES=900*1024;
 async function compressImageSmart(file){
   const dataUrl = await readAsDataURL(file);
   const img = new Image(); img.decoding='async'; await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=dataUrl; });
-  let width = Math.min(START_MAX_W, img.naturalWidth||START_MAX_W); let quality=START_QUALITY; let mime='image/webp';
+  let width=Math.min(START_MAX_W,img.naturalWidth||START_MAX_W), quality=START_QUALITY, mime='image/webp';
   try{ const t=document.createElement('canvas'); t.toDataURL('image/webp',.5);}catch{ mime='image/jpeg'; }
   let out=null;
   for (let i=0;i<40;i++){
@@ -217,7 +221,8 @@ async function compressImageSmart(file){
     if (quality>MIN_QUALITY) quality=Math.max(MIN_QUALITY,quality*.85);
     else if (width>MIN_WIDTH) width=Math.max(MIN_WIDTH,Math.floor(width*.85));
     else { quality=Math.max(.1,quality*.8); width=Math.max(32,Math.floor(width*.9)); }
-  } return out;
+  }
+  return out;
 }
 fileInput.addEventListener('change', async ()=>{
   const file=fileInput.files?.[0]; if (!file || !msgsCol) return;
