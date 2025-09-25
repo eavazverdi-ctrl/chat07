@@ -1,8 +1,9 @@
-// v12: form buttons on LEFT, no page zoom/scroll, auto-scroll to bottom, settings layout 70/30, batch wipe
+// v13: fixed page, smart autoscroll, stronger image compression, timestamps, bottom-align on empty
 const ROOM_ID = "global-room-1";
 const POLL_MS = 3000;
-const MAX_BYTES = 850 * 1024;
-const START_MAX_W = 2048, START_QUALITY = 0.82, MIN_QUALITY = 0.4, MIN_WIDTH = 360;
+// Firestore doc limit ~1MB; aim below:
+const MAX_BYTES = 900 * 1024;
+const START_MAX_W = 2560, START_QUALITY = 0.85, MIN_QUALITY = 0.2, MIN_WIDTH = 96;
 const ENTRY_PASSCODE = "2025";
 const WIPE_PASSWORD = "delete all";
 
@@ -15,9 +16,9 @@ const app = initializeApp(FIREBASE_CONFIG);
 const db = getFirestore(app);
 
 // Identity
-const UID_KEY = "local_uid_v12";
-const NAME_KEY = "display_name_v12";
-const PASS_OK_KEY = "entry_ok_v12";
+const UID_KEY = "local_uid_v13";
+const NAME_KEY = "display_name_v13";
+const PASS_OK_KEY = "entry_ok_v13";
 const uid = localStorage.getItem(UID_KEY) || (() => {
   const v = Math.random().toString(36).slice(2) + Date.now().toString(36);
   localStorage.setItem(UID_KEY, v);
@@ -30,13 +31,8 @@ const nameInput = document.getElementById("nameInput");
 const passInput = document.getElementById("passInput");
 const saveName = document.getElementById("saveName");
 
-function openNameModal(){
-  nameModal.setAttribute("open","");
-  setTimeout(()=> nameInput && nameInput.focus(), 0);
-}
-function closeNameModal(){
-  nameModal.removeAttribute("open");
-}
+function openNameModal(){ nameModal.setAttribute("open",""); setTimeout(()=> nameInput && nameInput.focus(), 0); }
+function closeNameModal(){ nameModal.removeAttribute("open"); }
 function tryEnter(e){
   if (e) e.preventDefault();
   const n = (nameInput.value || "").trim();
@@ -62,12 +58,41 @@ const input = document.getElementById("text");
 const fileInput = document.getElementById("fileInput");
 const settingsBtn = document.getElementById("settingsBtn");
 
-// Prevent page scroll bouncing on iOS within board
-board.addEventListener('touchmove', ()=>{}, {passive:true});
+// Prevent page moving on touch except within board
+document.addEventListener('touchmove', (e)=>{
+  if (!e.target.closest('#board') && !e.target.closest('.modal[open]')) {
+    e.preventDefault();
+  }
+}, {passive:false});
 
 function hashHue(s){ let h=0; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))%360; return h; }
+function pad(n){ return n<10 ? '0'+n : ''+n; }
+function fmt(ts){
+  const d = new Date(ts);
+  const Y = d.getFullYear();
+  const M = pad(d.getMonth()+1);
+  const D = pad(d.getDate());
+  const H = pad(d.getHours());
+  const m = pad(d.getMinutes());
+  const S = pad(d.getSeconds());
+  return `${Y}/${M}/${D}, ${H}:${m}:${S}`;
+}
+function getTs(m){
+  if (m.ts) return m.ts;
+  if (m.t && m.t.seconds!=null) return m.t.seconds*1000 + Math.floor((m.t.nanoseconds||0)/1e6);
+  return Date.now();
+}
 function scrollToBottom(){ board.scrollTop = board.scrollHeight; }
-function addTile({you, who, el}){
+
+let userPinnedToBottom = true;
+function isNearBottom(){
+  return (board.scrollHeight - board.scrollTop - board.clientHeight) < 24;
+}
+board.addEventListener('scroll', ()=>{
+  userPinnedToBottom = isNearBottom();
+});
+
+function addTile({you, who, el, ts}){
   const tile = document.createElement('div'); tile.className = 'tile' + (you? ' you' : '');
   if (!you){
     const hue = hashHue(who||"");
@@ -75,17 +100,19 @@ function addTile({you, who, el}){
     tile.style.borderColor = `hsla(${hue},70%,55%,0.35)`;
   }
   const w = document.createElement('div'); w.className='who'; w.textContent = who || "ناشناس";
-  tile.appendChild(w); tile.appendChild(el);
+  const meta = document.createElement('div'); meta.className='meta'; meta.textContent = fmt(ts||Date.now());
+  tile.appendChild(w); tile.appendChild(el); tile.appendChild(meta);
   board.appendChild(tile);
-  scrollToBottom();
 }
+
 const rendered = new Set();
-function renderText(m){
+function renderText(m, forceScroll=false){
   if (rendered.has(m.cid)) return; rendered.add(m.cid);
   const el = document.createElement('div'); el.className='txt'; el.textContent = m.text;
-  addTile({you: m.uid===uid, who: m.name || "ناشناس", el});
+  addTile({you: m.uid===uid, who: m.name || "ناشناس", el, ts: getTs(m)});
+  if (forceScroll || userPinnedToBottom) scrollToBottom();
 }
-function renderImage(m){
+function renderImage(m, forceScroll=false){
   if (rendered.has(m.cid)) return; rendered.add(m.cid);
   const el = document.createElement('div');
   const img = document.createElement('img');
@@ -93,13 +120,15 @@ function renderImage(m){
   const link = document.createElement('a');
   link.href = m.dataUrl; link.textContent = 'دانلود تصویر'; link.className='filelink'; link.download = m.name || 'image.jpg';
   el.appendChild(img); el.appendChild(link);
-  addTile({you: m.uid===uid, who: m.name || "ناشناس", el});
+  addTile({you: m.uid===uid, who: m.name || "ناشناس", el, ts: getTs(m)});
+  if (forceScroll || userPinnedToBottom) scrollToBottom();
 }
-function renderBlob(m){
+function renderBlob(m, forceScroll=false){
   if (rendered.has(m.cid)) return; rendered.add(m.cid);
   const el = document.createElement('a');
   el.href = m.dataUrl; el.textContent = '📄 '+(m.name||'file'); el.className='filelink'; el.download = m.name || 'file';
-  addTile({you: m.uid===uid, who: m.name || "ناشناس", el});
+  addTile({you: m.uid===uid, who: m.name || "ناشناس", el, ts: getTs(m)});
+  if (forceScroll || userPinnedToBottom) scrollToBottom();
 }
 
 // Firestore
@@ -113,28 +142,31 @@ async function poll(){
     const snap = await getDocs(query(msgsCol, orderBy('t','asc')));
     snap.forEach(d=>{
       const m = d.data(); m.cid = m.cid || d.id;
-      if (m.type==='txt') renderText(m);
-      if (m.type==='img') renderImage(m);
-      if (m.type==='blob') renderBlob(m);
+      if (m.type==='txt') renderText(m, false);
+      if (m.type==='img') renderImage(m, false);
+      if (m.type==='blob') renderBlob(m, false);
     });
-    // ensure bottom on initial and periodic
-    setTimeout(scrollToBottom, 0);
+    // No forced autoscroll here; only if user is near bottom
+    if (userPinnedToBottom) scrollToBottom();
   }catch(e){ /* ignore */ }
 }
+// initial load -> force scroll after first poll
 await poll();
+setTimeout(()=> scrollToBottom(), 50);
 setInterval(poll, POLL_MS);
 
-// Submit on Enter
+// Submit on Enter (force autoscroll)
 form.addEventListener('submit', async (e)=>{
   e.preventDefault();
   if (!localStorage.getItem(PASS_OK_KEY) || !displayName) { openNameModal(); return; }
   const text = (input.value||'').trim();
   if (!text) return;
   const cid = Date.now() + '-' + Math.random().toString(36).slice(2);
-  renderText({text, uid, name: displayName, cid});
+  const ts = Date.now();
+  renderText({text, uid, name: displayName, cid, ts}, true);
   input.value='';
   try{
-    await addDoc(msgsCol, {type:'txt', text, uid, name: displayName, cid, t: serverTimestamp()});
+    await addDoc(msgsCol, {type:'txt', text, uid, name: displayName, cid, ts, t: serverTimestamp()});
   }catch(e){ /* ignore */ }
 });
 
@@ -165,15 +197,15 @@ async function compressImageSmart(file){
   try { cv0.toDataURL('image/webp', .5); } catch { mime = 'image/jpeg'; }
 
   let lastOut = null;
-  for (let i=0;i<14;i++){
+  for (let i=0;i<22;i++){
     const cv = await drawToCanvas(img, width);
     let out;
     try { out = cv.toDataURL(mime, quality); }
     catch { out = cv.toDataURL('image/jpeg', quality); mime='image/jpeg'; }
     lastOut = out;
     if (b64Bytes(out) <= MAX_BYTES) return out;
-    if (quality > MIN_QUALITY) quality = Math.max(MIN_QUALITY, quality * 0.85);
-    else if (width > MIN_WIDTH) width = Math.max(MIN_WIDTH, Math.floor(width * 0.85));
+    if (quality > MIN_QUALITY) quality = Math.max(MIN_QUALITY, quality * 0.80);
+    else if (width > MIN_WIDTH) width = Math.max(MIN_WIDTH, Math.floor(width * 0.80));
     else break;
   }
   return lastOut;
@@ -186,9 +218,11 @@ fileInput.addEventListener('change', async ()=>{
 
   const cid = Date.now() + '-' + Math.random().toString(36).slice(2);
   const safeName = (file.name || 'file').replace(/[^\w.\-]+/g,'_');
+  const ts = Date.now();
 
   const temp = document.createElement('div'); temp.className='txt'; temp.textContent = `در حال آماده‌سازی فایل — ${safeName}`;
-  addTile({you:true, who: displayName || "من", el: temp});
+  addTile({you:true, who: displayName || "من", el: temp, ts});
+  scrollToBottom(); // force on own upload
 
   try{
     if ((safeName).match(/\.(png|jpe?g|gif|webp|heic|heif)$/i) || (file.type||'').startsWith('image/')) {
@@ -196,14 +230,14 @@ fileInput.addEventListener('change', async ()=>{
       if (!dataUrl) { temp.textContent = 'خطا در فشرده‌سازی تصویر'; return; }
       if (b64Bytes(dataUrl) > MAX_BYTES) { temp.textContent = 'تصویر بسیار بزرگ است؛ دوباره تلاش کنید.'; return; }
       temp.parentElement.remove();
-      renderImage({name:safeName, dataUrl, uid, name: displayName, cid});
-      await addDoc(msgsCol, {type:'img', name:safeName, dataUrl, uid, name: displayName, cid, t: serverTimestamp()});
+      renderImage({name:safeName, dataUrl, uid, name: displayName, cid, ts}, true);
+      await addDoc(msgsCol, {type:'img', name:safeName, dataUrl, uid, name: displayName, cid, ts, t: serverTimestamp()});
     } else {
       const raw = await readAsDataURL(file);
-      if (b64Bytes(raw) > MAX_BYTES) { temp.textContent = 'حجم فایل زیاد است (~850KB).'; return; }
+      if (b64Bytes(raw) > MAX_BYTES) { temp.textContent = 'حجم فایل زیاد است (~900KB).'; return; }
       temp.parentElement.remove();
-      renderBlob({name:safeName, dataUrl: raw, uid, name: displayName, cid});
-      await addDoc(msgsCol, {type:'blob', name:safeName, dataUrl: raw, uid, name: displayName, cid, t: serverTimestamp()});
+      renderBlob({name:safeName, dataUrl: raw, uid, name: displayName, cid, ts}, true);
+      await addDoc(msgsCol, {type:'blob', name:safeName, dataUrl: raw, uid, name: displayName, cid, ts, t: serverTimestamp()});
     }
     fileInput.value='';
   }catch(e){
@@ -238,7 +272,7 @@ wipeBtn.addEventListener("click", async (e)=>{
   e.preventDefault();
   const pw = (wipePass.value || "").trim();
   const status = document.getElementById("wipeStatus");
-  if (pw != "delete all") { status.textContent = "رمز حذف صحیح نیست."; return; }
+  if (pw != WIPE_PASSWORD) { status.textContent = "رمز حذف صحیح نیست."; return; }
   status.textContent = "در حال حذف...";
   try{
     let total = 0;
@@ -257,10 +291,8 @@ wipeBtn.addEventListener("click", async (e)=>{
     tiles.forEach(t=>t.remove());
     rendered.clear();
     status.textContent = "همهٔ پیام‌ها حذف شد.";
+    scrollToBottom();
   }catch(e){
     status.textContent = "خطا در حذف (Rules/Network).";
   }
 });
-
-// Auto-scroll on initial load after a tick (in case of cached paints)
-setTimeout(()=> scrollToBottom(), 50);
